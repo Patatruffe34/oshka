@@ -199,8 +199,6 @@ const translations = {
     "color.pick": "Column color",
 
     // Browser auth redirect
-    "auth.browser_done": "You're signed in!",
-    "auth.browser_back": "Go back to the Oshka app on your home screen.",
 
     // Presets
     "presets.title": "Get started",
@@ -640,8 +638,6 @@ const translations = {
     "color.pick": "Couleur de colonne",
 
     // Browser auth redirect
-    "auth.browser_done": "Tu es connecté !",
-    "auth.browser_back": "Retourne dans l'app Oshka depuis ton écran d'accueil.",
 
     // Presets
     "presets.title": "C'est parti",

@@ -28,16 +28,18 @@ export function useAuth() {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState(null);
-  const [verifying, setVerifying] = useState(() =>
+  // Read once: a magic link either has its email stored here, or was opened in
+  // another browser/device and the user has to type it again
+  const [magicLink] = useState(() =>
     isSignInWithEmailLink(auth, window.location.href)
+      ? { url: window.location.href, email: window.localStorage.getItem("inceptio_email") }
+      : null
   );
-  // True when magic-link auth completed inside the browser (not the PWA)
-  const [completedInBrowser, setCompletedInBrowser] = useState(false);
+  const [verifying, setVerifying] = useState(Boolean(magicLink?.email));
   // True when the magic link was opened in a different browser and we need the email
-  const [needsEmailConfirm, setNeedsEmailConfirm] = useState(false);
+  const [needsEmailConfirm, setNeedsEmailConfirm] = useState(Boolean(magicLink && !magicLink.email));
 
-  const authEmail = useRef(null); // email used for the completed auth
-  const magicLinkUrl = useRef(null); // store the magic link URL for cross-browser confirm
+  const magicLinkUrl = useRef(magicLink && !magicLink.email ? magicLink.url : null); // store the magic link URL for cross-browser confirm
 
   // ---- Core auth listener ----
   useEffect(() => {
@@ -69,29 +71,18 @@ export function useAuth() {
 
   // ---- Handle magic link redirect on mount ----
   useEffect(() => {
-    if (!isSignInWithEmailLink(auth, window.location.href)) return;
+    // Without a stored email, needsEmailConfirm already asks for it
+    if (!magicLink?.email) return;
 
-    setVerifying(true);
-    const email = window.localStorage.getItem("inceptio_email");
-
-    if (!email) {
-      // Different browser/device — ask user to re-enter their email
-      magicLinkUrl.current = window.location.href;
-      setNeedsEmailConfirm(true);
-      setVerifying(false);
-      return;
-    }
-
-    signInWithEmailLink(auth, email, window.location.href)
+    const { email, url } = magicLink;
+    signInWithEmailLink(auth, email, url)
       .then(() => {
         window.localStorage.removeItem("inceptio_email");
         window.history.replaceState(null, "", window.location.origin);
-
-        authEmail.current = email;
       })
       .catch((err) => setError(err.message))
       .finally(() => setVerifying(false));
-  }, []);
+  }, [magicLink]);
 
   const sendMagicLink = async (email) => {
     setSending(true);
@@ -117,7 +108,6 @@ export function useAuth() {
       window.localStorage.removeItem("inceptio_email");
       window.history.replaceState(null, "", window.location.origin);
       setNeedsEmailConfirm(false);
-      authEmail.current = email;
       setSending(false);
       return true;
     } catch (err) {
@@ -176,7 +166,5 @@ export function useAuth() {
     confirmEmail,
     needsEmailConfirm,
     logout,
-    completedInBrowser,
-    completedEmail: authEmail.current,
   };
 }

@@ -58,8 +58,6 @@ export default function App({ initialShare = null }) {
     confirmEmail,
     needsEmailConfirm,
     logout,
-    completedInBrowser,
-    completedEmail,
   } = useAuth();
   const { theme, toggle: toggleTheme } = useTheme();
   const online = useOnline();
@@ -477,32 +475,6 @@ export default function App({ initialShare = null }) {
       <div className="loading-page">
         <LoadingLogo />
         <span className="loading-spinner">{t("loading")}</span>
-      </div>
-    );
-  }
-
-  // Magic link was consumed in the browser (not the PWA) → show "go back" screen
-  if (completedInBrowser) {
-    return (
-      <div className="auth-page">
-        <div className="auth-card">
-          <div className="auth-logo">
-            <Logo size={26} />
-            <span className="logo-word">Oshka</span>
-          </div>
-          <div className="auth-success" style={{ marginTop: 24 }}>
-            <span style={{ fontSize: 40 }}>✓</span>
-            <p style={{ fontSize: 18, fontWeight: 600, marginTop: 12 }}>
-              {t("auth.browser_done")}
-            </p>
-            {completedEmail && (
-              <p style={{ opacity: 0.6, marginTop: 4 }}>{completedEmail}</p>
-            )}
-            <p style={{ marginTop: 16, opacity: 0.8 }}>
-              {t("auth.browser_back")}
-            </p>
-          </div>
-        </div>
       </div>
     );
   }

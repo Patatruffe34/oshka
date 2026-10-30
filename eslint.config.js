@@ -24,6 +24,8 @@ export default defineConfig([
     },
     rules: {
       'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]' }],
+      // The i18n hook lives next to its provider; editing that file reloads the page
+      'react-refresh/only-export-components': ['error', { allowConstantExport: true, allowExportNames: ['useI18n'] }],
     },
   },
   // Cloud Functions: CommonJS on Node, except the ESM entry bundled from src/lib
