@@ -8,6 +8,11 @@ A kanban where every card holds a whole board of its own, to any depth.
 
 </div>
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/media/demo-nesting-dark.gif">
+  <img alt="Opening a card into its own board, two levels down, then back to the root" src="docs/media/demo-nesting-light.gif">
+</picture>
+
 ---
 
 ## The idea
@@ -36,9 +41,37 @@ nothing again. Four views answer that, each one a different question.
 | **Map** | *what shape does it all have?* | a radial mind map, root in the middle |
 | **Agenda** | *what do I do now?* | the whole tree read as a calendar |
 
+<table>
+  <tr>
+    <td width="50%"><picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/media/board-dark.png">
+  <img alt="Board view: columns of cards with labels and due dates" src="docs/media/board-light.png">
+</picture><br><sub><b>Board</b> — what is in here?</sub></td>
+    <td width="50%"><picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/media/outline-dark.png">
+  <img alt="Outline view: the whole tree as a collapsible list" src="docs/media/outline-light.png">
+</picture><br><sub><b>Outline</b> — what is underneath?</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/media/map-dark.png">
+  <img alt="Map view: the tree as a radial mind map" src="docs/media/map-light.png">
+</picture><br><sub><b>Map</b> — what shape does it all have?</sub></td>
+    <td width="50%"><picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/media/agenda-dark.png">
+  <img alt="Agenda view: cards from every board sorted into today, tomorrow, this week, next week, later and standstill" src="docs/media/agenda-light.png">
+</picture><br><sub><b>Agenda</b> — what do I do now?</sub></td>
+  </tr>
+</table>
+
 **Agenda** is the one that tips the tool over. It gathers cards from every
 board by due date — today, tomorrow, this week, next week, later — and makes
 them draggable: dropping a card in a lane writes its date.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/media/demo-agenda-dark.gif">
+  <img alt="Dragging a card from Next week to Tomorrow in the Agenda" src="docs/media/demo-agenda-light.gif">
+</picture>
 
 Its last column does not list undated cards: that would be almost the whole
 tree. It lists branches at a **standstill** — a card whose board has a ✅ column and
@@ -63,6 +96,15 @@ sorting, label filter, starter templates, trash with restore, undo/redo.
 **Everywhere** — search across the whole tree, quick access, tabs to keep
 several boards open, light/dark theme, French and English, and real offline
 mode: writes are queued and sent again when the network comes back.
+
+**Inbox** — capture now, file later. A note typed into the Inbox, shared from
+your phone, sent from Gmail or Slack or added by an assistant waits there until
+you drag it onto a board.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/media/demo-inbox-dark.gif">
+  <img alt="Typing a note into the Inbox, then dragging it onto a board" src="docs/media/demo-inbox-light.gif">
+</picture>
 
 **Conventions** — a column marked ✅ flags a board meant to progress. A card
 dropped there becomes done, and a board without that column is never flagged as
