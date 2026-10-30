@@ -100,7 +100,7 @@ export const setAtPath = (rootBoard, path, updaterFn) => {
 /**
  * Write an explicit order onto cards scattered across the tree.
  *
- * Horizon's first lane is a queue, not a listing, so the order you put it in
+ * The Agenda's first lane is a queue, not a listing, so the order you put it in
  * is a decision worth storing. Its cards live on different boards, though, and
  * going through setAtPath once each would clone the whole document per card —
  * a drop would cost as much as the tree is big. One clone, then every card is

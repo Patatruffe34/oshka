@@ -11,7 +11,7 @@ const LAST_KEY = "oshka_week_destination";
 /**
  * Write a card straight into a lane.
  *
- * Horizon is not a board — it has no column of its own to drop a card into, so
+ * The Agenda is not a board — it has no column of its own to drop a card into, so
  * a destination has to be named. It is remembered between adds: planning a day
  * usually means several cards into the same place, and re-picking it each time
  * would make the quick path the slow one.

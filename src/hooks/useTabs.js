@@ -8,8 +8,8 @@ const read = () => {
   try {
     const saved = JSON.parse(localStorage.getItem(TABS_KEY));
     if (!Array.isArray(saved?.tabs) || saved.tabs.length === 0) return null;
-    // States written before Horizon was permanent still need it
-    return withHorizon(saved);
+    // States written before the Agenda was permanent still need it
+    return withAgenda(saved);
   } catch {
     return null;
   }
@@ -19,21 +19,21 @@ const read = () => {
 const pinnedCount = (tabs) => tabs.filter((t) => t.view).length;
 
 /**
- * Horizon is always there, anchored left and never closed.
+ * The Agenda is always there, anchored left and never closed.
  *
  * It is a place rather than a position, and the one you reach for without
  * knowing what you are looking for — so it is part of the furniture instead of
  * something to summon. Its permanence is what lets the top bar drop its
  * button: the tab *is* the way in.
  */
-export const withHorizon = (state) => {
+export const withAgenda = (state) => {
   if (state.tabs.some((t) => t.view)) return state;
   return { ...state, tabs: [{ id: uid(), segments: [], view: "week" }, ...state.tabs] };
 };
 
 const fresh = () => {
   const id = uid();
-  return withHorizon({ tabs: [{ id, segments: [] }], activeId: id });
+  return withAgenda({ tabs: [{ id, segments: [] }], activeId: id });
 };
 
 const segmentsOf = (p) => p.map((s) => ({ colId: s.colId, cardId: s.cardId }));

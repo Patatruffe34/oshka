@@ -4,7 +4,7 @@
  * Bundled by vite.functions.config.js into build/oshka.cjs: src/lib is ESM
  * with extensionless imports, which Node cannot load as it stands. Running
  * the same code is the only way the server keeps agreeing with the app about
- * what ticking a repeating card does or what Horizon calls "this week".
+ * what ticking a repeating card does or what the Agenda calls "this week".
  */
 export {
   uid,

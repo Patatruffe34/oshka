@@ -2,251 +2,239 @@
 
 # Oshka
 
-**Des boards dans des boards.**
+**Boards inside boards.**
 
-Un kanban où chaque carte contient un board entier, sans limite de profondeur.
+A kanban where every card holds a whole board of its own, to any depth.
 
 </div>
 
 ---
 
-## L'idée
+## The idea
 
-Un board classique s'arrête à deux niveaux : des colonnes, des cartes. Quand une
-carte devient un projet, il faut lui créer son propre board ailleurs, et le lien
-entre les deux n'existe plus que dans votre tête.
+A classic board stops at two levels: columns and cards. When a card grows into
+a project, you have to create a board for it somewhere else, and the link
+between the two only lives in your head.
 
-Ici, **une carte *est* un board**. Ouvrez-la, elle a ses colonnes et ses cartes,
-qui ont elles-mêmes les leurs. Le même geste sert à noter une tâche et à ouvrir
-un projet, parce que c'est la même chose vue de plus ou moins loin.
+Here, **a card *is* a board**. Open it and it has its own columns and cards,
+which have theirs. The same gesture notes a task and opens a project, because
+they are the same thing seen from closer or further away.
 
-D'où le nom — *matriochka*, la poupée russe. Le logo est un O qui s'ouvre le long
-d'une couture, et l'animation de chargement le montre : la coque s'écarte, le
-point du centre grandit et devient la poupée suivante.
+Hence the name — *matryoshka*, the Russian doll. The logo is an O that opens
+along a seam, and the loading animation shows it: the shell parts, the dot in
+the middle grows and becomes the next doll.
 
-## Le piège, et la réponse
+## The trap, and the answer
 
-Une arborescence sans fond finit par tout engloutir : on y range beaucoup, et on
-n'y retrouve plus rien. Quatre vues répondent à ça, chacune à une question
-différente.
+A bottomless tree ends up swallowing everything: you file a lot and find
+nothing again. Four views answer that, each one a different question.
 
-| Vue | Répond à | Où |
+| View | Answers | Where |
 |---|---|---|
-| **Board** | *qu'est-ce qu'il y a ici ?* | la vue par défaut |
-| **Plan** | *qu'est-ce qu'il y a en dessous ?* | l'arbre entier, dépliable |
-| **Carte** | *quelle forme a tout ça ?* | une carte mentale radiale, la racine au centre |
-| **Horizon** | *qu'est-ce que je fais maintenant ?* | tout l'arbre lu comme un calendrier |
+| **Board** | *what is in here?* | the default view |
+| **Outline** | *what is underneath?* | the whole tree, collapsible |
+| **Map** | *what shape does it all have?* | a radial mind map, root in the middle |
+| **Agenda** | *what do I do now?* | the whole tree read as a calendar |
 
-**Horizon** est celle qui fait basculer l'outil. Elle rassemble les cartes de
-tous les boards par échéance — aujourd'hui, demain, cette semaine, la semaine
-prochaine, plus tard — et les rend déplaçables : poser une carte dans une voie
-lui écrit sa date.
+**Agenda** is the one that tips the tool over. It gathers cards from every
+board by due date — today, tomorrow, this week, next week, later — and makes
+them draggable: dropping a card in a lane writes its date.
 
-Sa dernière colonne ne liste pas ce qui n'a pas de date : ce serait la quasi
-totalité de l'arbre. Elle liste **les branches à l'arrêt** — une carte dont le
-board porte une colonne ✅ et où plus rien, nulle part en dessous, n'est engagé.
-C'est ce qui mérite un « et la prochaine action, c'est quoi ? ».
+Its last column does not list undated cards: that would be almost the whole
+tree. It lists branches at a **standstill** — a card whose board has a ✅ column and
+where nothing, anywhere below, is in progress. Those are the ones that deserve
+a "so what is the next action?".
 
-## Ce que ça fait
+## What it does
 
-**Sur une carte** — description en Markdown, commentaires, étiquettes partagées
-par tout l'arbre, échéance, répétition, checklists, état terminé, archivage,
-duplication, déplacement vers n'importe quel autre board.
+**On a card** — Markdown description, comments, labels shared across the whole
+tree, due date, repetition, checklists, done state, archiving, duplication,
+moving to any other board.
 
-Une carte peut revenir tous les *x* jours, semaines ou mois — la case se coche
-sous l'échéance, parce que la répétition n'est pas une autre idée : c'est ce que
-cette date fait ensuite. Et une carte qui revient n'est jamais terminée : la
-cocher la reporte à sa prochaine occurrence et décoche ses checklists. Pour
-arrêter la série, on retire la répétition.
+A card can come back every *x* days, weeks or months — the box sits under the
+due date, because repetition is not another idea: it is what that date does
+next. And a repeating card is never done: ticking it moves it to its next
+occurrence and unticks its checklists. To end the series, remove the
+repetition.
 
-**Sur un board** — colonnes colorées et nommées, glisser-déposer des cartes et
-des colonnes, tri, filtre par étiquette, gabarits de départ, corbeille avec
-restauration, annuler/rétablir.
+**On a board** — coloured, named columns, drag and drop for cards and columns,
+sorting, label filter, starter templates, trash with restore, undo/redo.
 
-**Partout** — recherche dans tout l'arbre, accès rapides, onglets pour garder
-plusieurs boards ouverts, thème clair/sombre, français et anglais, et un mode
-hors-ligne réel : les écritures sont mises en file et repartent au retour du
-réseau.
+**Everywhere** — search across the whole tree, quick access, tabs to keep
+several boards open, light/dark theme, French and English, and real offline
+mode: writes are queued and sent again when the network comes back.
 
-**Conventions** — une colonne marquée ✅ signale un board qui progresse. Une
-carte qu'on y dépose passe en terminée, et un board sans cette colonne n'est
-jamais signalé comme à l'arrêt : une base de données ou une grille de réflexion
-n'a pas d'état final, elle ne peut donc pas être en retard dessus.
+**Conventions** — a column marked ✅ flags a board meant to progress. A card
+dropped there becomes done, and a board without that column is never flagged as
+stalled: a database or a brainstorming grid has no final state, so it cannot
+fall behind on it.
 
-## Raccourcis
+## Shortcuts
 
-Sur la carte survolée, sans rien ouvrir :
+On the hovered card, without opening anything:
 
-| Touche | Action |
+| Key | Action |
 |---|---|
-| `R` | renommer |
-| `E` | étiquettes |
-| `D` | échéance |
-| `A` | archiver |
-| `M` | déplacer vers une autre colonne |
+| `R` | rename |
+| `E` | labels |
+| `D` | due date |
+| `A` | archive |
+| `M` | move to another column |
 
-Et ailleurs : `⌘K` ou `/` pour chercher, `⌘Z` / `⇧⌘Z` pour annuler et rétablir,
-`⌥1`…`⌥9` pour changer d'onglet. Un clic sur une carte l'ouvre, un double-clic
-entre dans son board.
+And elsewhere: `⌘K` or `/` to search, `⌘Z` / `⇧⌘Z` to undo and redo, `⌥1`…`⌥9`
+to switch tabs. A click on a card opens it, a double click enters its board.
 
-## Partager un lien depuis le téléphone
+## Share a link from your phone
 
-**iPhone / iPad** — Dans Oshka, ouvre **Paramètres → Connexions et partage →
-iPhone / iPad**, puis installe le raccourci **Ajouter à Oshka**. Ouvre le fichier
-téléchargé depuis les téléchargements de Safari ou l’app Fichiers pour l’ajouter
-dans Raccourcis. Touche simplement le lien : un appui long affiche un aperçu.
-Ensuite, dans Safari ou une autre app :
-**Partager → Ajouter à Oshka → Ajouter à l’Inbox**. Le raccourci ouvre Oshka dans
-le navigateur ; une première connexion peut être nécessaire, même si l’app est
-déjà installée sur l’écran d’accueil.
+**iPhone / iPad** — In Oshka, open **Settings → Connections & sharing →
+iPhone / iPad**, then install the **Ajouter à Oshka** shortcut. Open the
+downloaded file from Safari Downloads or the Files app to add it to Shortcuts.
+Just tap the link: a long press shows a preview. Then, in Safari or another
+app: **Share → Ajouter à Oshka → Add to Inbox**. The shortcut opens Oshka in
+the browser; you may need to sign in once, even if the app is already on your
+home screen.
 
-**Android** — Installe Oshka depuis le menu de Chrome. Depuis une autre app,
-choisis **Partager → Oshka**, vérifie la carte et ajoute-la à l’Inbox. Si l’app
-était déjà installée avant cette fonctionnalité, laisse Chrome la mettre à jour
-ou réinstalle-la ; les cartes restent dans le compte.
+**Android** — Install Oshka from the Chrome menu. From another app, choose
+**Share → Oshka**, check the card and add it to the Inbox. If the app was
+installed before this feature, let Chrome update it or reinstall it; your cards
+stay in your account.
 
-Le titre et le contenu sont modifiables avant l’ajout. Un partage en attente est
-conservé pendant la connexion ; annuler ne crée aucune carte. L’ajout est une
-seule opération annulable. Les photos et fichiers joints ne sont pas pris en
-charge par ce parcours.
+Title and content can be edited before adding. A pending share is kept while
+you sign in; cancelling creates no card. Adding is a single undoable operation.
+Photos and attached files are not supported by this flow.
 
-Le raccourci signé n’est pas versionné : il se génère et se signe sur Mac, dans
-`public/shortcuts/`, avant de déployer Hosting :
+The signed shortcut is not versioned: generate and sign it on a Mac, into
+`public/shortcuts/`, before deploying Hosting:
 
 ```bash
 python3 scripts/build-share-shortcut.py /tmp/oshka-unsigned.shortcut
 shortcuts sign --mode anyone --input /tmp/oshka-unsigned.shortcut --output public/shortcuts/Ajouter-a-Oshka.shortcut
 ```
 
-Le script lit l’origine de l’instance dans `OSHKA_ORIGIN` (`.env`) ou en
-deuxième argument. La signature publique fait valider le fichier par Apple,
-sans inclure de compte ni de jeton Oshka.
+The script reads the instance origin from `OSHKA_ORIGIN` (`.env`) or from its
+second argument. Public signing has Apple validate the file, without including
+any Oshka account or token.
 
-L’entrée de l’action URL Encode doit être un `WFTextTokenString` contenant le
-jeton `ExtensionInput`. Un `WFTextTokenAttachment` directement dans ce paramètre
-est ignoré à l’import par Apple : le raccourci s’exécute mais ouvre seulement
-`/share#text=`, sans lien. Ce défaut a été reproduit dans le moteur Raccourcis
-sur Mac avec une URL en entrée. Après une correction du fichier, il faut
-remplacer le raccourci installé sur l’iPhone ; il ne se met pas à jour avec le
-site. Un partage vide affiche désormais un message et permet de coller le lien.
+The input of the URL Encode action must be a `WFTextTokenString` holding the
+`ExtensionInput` token. A `WFTextTokenAttachment` placed directly in that
+parameter is dropped by Apple on import: the shortcut runs but only opens
+`/share#text=`, with no link. This was reproduced in the Shortcuts engine on
+Mac with a URL as input. After fixing the file, the shortcut installed on the
+iPhone must be replaced; it does not update with the site. An empty share now
+shows a message and lets you paste the link.
 
-Le téléchargement doit conserver l’extension `.shortcut` et être servi en pièce
-jointe (`Content-Disposition: attachment`). L’en-tête manquant faisait afficher
-le fichier signé comme du texte brut dans l’aperçu de Safari. Le service worker
-laisse ces téléchargements au navigateur. Vérification HTTP sur l’émulateur
-Hosting ou après déploiement :
+The download must keep its `.shortcut` extension and be served as an attachment
+(`Content-Disposition: attachment`). Without that header, Safari's preview
+showed the signed file as plain text. The service worker leaves these downloads
+to the browser. HTTP check against the Hosting emulator or after deploying:
 
 ```bash
-node scripts/check-share-download.mjs https://<projet>.web.app
+node scripts/check-share-download.mjs https://<project>.web.app
 ```
 
 ## Gmail
 
-Le module Gmail Oshka fonctionne sur iPhone et Mac : ouvrir Oshka sur un mail
-crée directement une carte avec son lien source. Chaque mail consulté tant que
-le panneau reste ouvert est aussi ajouté ; ferme le panneau pour arrêter. Installation privée et connexion :
-[guide Gmail](docs/GMAIL.md).
+The Oshka Gmail add-on works on iPhone and Mac: opening Oshka on an email
+creates a card straight away, with a link back to the source. Every email you
+view while the panel stays open is added too; close the panel to stop. Private
+installation and connection: [Gmail guide](docs/GMAIL.md).
 
-## Depuis Slack
+## From Slack
 
-Une app Slack permet d’ouvrir **Ajouter à Oshka** depuis le menu d’un message,
-de confirmer le titre et d’enregistrer le texte avec son lien dans l’Inbox.
-La configuration du workspace, des deux secrets et de la liaison personnelle
-est décrite dans [docs/SLACK.md](docs/SLACK.md).
+A Slack app adds **Add to Oshka** to a message's menu: confirm the title and
+the text is saved with its link in the Inbox. Setting up the workspace, the two
+secrets and the personal link is described in [docs/SLACK.md](docs/SLACK.md).
 
-## Depuis Claude ou Codex
+## From Claude or Codex
 
-Un serveur MCP donne accès aux boards depuis un assistant : lire l'arbre et
-l'agenda, chercher, capturer dans l'Inbox, créer, déplacer, terminer, commenter.
-La connexion passe par votre compte Oshka.
+An MCP server gives an assistant access to your boards: read the tree and the
+agenda, search, capture into the Inbox, create, move, complete, comment.
+Sign-in goes through your Oshka account.
 
-| Client | Pour le brancher |
+| Client | How to connect it |
 |---|---|
-| **claude.ai** (web, puis mobile) | Paramètres → Connecteurs → *Ajouter un connecteur personnalisé* → `https://<projet>.web.app/mcp` |
-| **Claude Code** | `claude mcp add --transport http oshka https://<projet>.web.app/mcp`, puis `/mcp` pour se connecter |
-| **Codex** | `codex mcp add oshka --url https://<projet>.web.app/mcp`, puis `codex mcp login oshka` |
+| **claude.ai** (web, then mobile) | Settings → Connectors → *Add custom connector* → `https://<project>.web.app/mcp` |
+| **Claude Code** | `claude mcp add --transport http oshka https://<project>.web.app/mcp`, then `/mcp` to sign in |
+| **Codex** | `codex mcp add oshka --url https://<project>.web.app/mcp`, then `codex mcp login oshka` |
 
-Un connecteur ajouté sur claude.ai suit le compte : il est ensuite disponible
-dans l'app mobile. Le fonctionnement est décrit dans
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#le-serveur-mcp).
+A connector added on claude.ai follows the account: it is then available in the
+mobile app. How it works is described in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#the-mcp-server).
 
-## Démarrer
+## Getting started
 
 ```bash
 npm install
 ```
 
-Copiez `.env.example` en `.env` et renseignez les valeurs depuis la console
-Firebase (Paramètres du projet → Vos applications), puis associez le dossier à
-votre projet Firebase :
+Copy `.env.example` to `.env` and fill in the values from the Firebase console
+(Project settings → Your apps), then link the folder to your Firebase project:
 
 ```bash
 cp .env.example .env
 firebase use --add
 ```
 
-`authDomain` et `storageBucket` se déduisent de l'ID du projet dans
-`src/lib/firebase.js`. Ces valeurs sont publiques par nature : la sécurité tient
-aux règles Firestore, pas à leur discrétion. Côté Cloud Functions, l'origine est
-`https://<projet>.web.app` par défaut ; pour un domaine personnalisé, définissez
-`OSHKA_ORIGIN` dans `functions/.env`.
+`authDomain` and `storageBucket` are derived from the project ID in
+`src/lib/firebase.js`. These values are public by nature: security comes from
+the Firestore rules, not from keeping them secret. On the Cloud Functions side,
+the origin defaults to `https://<project>.web.app`; for a custom domain, set
+`OSHKA_ORIGIN` in `functions/.env`.
 
 ```bash
 npm run dev
 ```
 
-| Commande | |
+| Command | |
 |---|---|
-| `npm run dev` | serveur de développement |
-| `npm test` | la suite de tests |
-| `npm run test:watch` | les tests en continu |
+| `npm run dev` | development server |
+| `npm test` | the test suite |
+| `npm run test:watch` | tests in watch mode |
 | `npm run lint` | ESLint |
-| `npm run build` | build de production |
-| `firebase deploy --only hosting` | déploiement de l'app |
-| `firebase deploy --only functions:mcp,hosting,firestore` | déploiement du serveur MCP (et des réécritures qui le servent) |
-| `npm run seed:local` | compte et board de test dans les émulateurs |
+| `npm run build` | production build |
+| `firebase deploy --only hosting` | deploy the app |
+| `firebase deploy --only functions:mcp,hosting,firestore` | deploy the MCP server (and the rewrites that serve it) |
+| `npm run seed:local` | test account and board in the emulators |
 
-### Tester sans toucher à la prod
+### Testing without touching production
 
-La configuration de lancement `dev-local` (`.claude/launch.json`) démarre les
-émulateurs Auth et Firestore et sert l'app sur **`localhost:5174`** avec
-`VITE_EMULATORS=1`. L'app pointe alors sur un projet `demo-oshka`, qui n'existe
-pas côté Firebase : rien ne peut atteindre la vraie base, même par erreur. Le
-port différent sépare aussi le stockage du navigateur de celui de la prod.
+The `dev-local` launch configuration (`.claude/launch.json`) starts the Auth
+and Firestore emulators and serves the app on **`localhost:5174`** with
+`VITE_EMULATORS=1`. The app then points at a `demo-oshka` project, which does
+not exist on Firebase: nothing can reach the real database, even by mistake.
+The different port also keeps browser storage apart from production's.
 
-Les émulateurs gardent tout en mémoire : chaque lancement repart de zéro, et
-recrée donc d'abord le compte de test et un board d'exemple (les identifiants
-sont dans `scripts/seed-emulator.mjs`). Pour remettre le board à zéro sans
-relancer :
+The emulators keep everything in memory: each launch starts from scratch, so it
+first recreates the test account and a sample board (credentials are in
+`scripts/seed-emulator.mjs`). To reset the board without relaunching:
 
 ```bash
 npm run seed:local
 ```
 
-Un banc d'essai pour l'animation du logo est disponible sur **`/loader`** en
-développement uniquement — il la joue en boucle, au ralenti, image par image.
+A test bench for the logo animation is available at **`/loader`** in
+development only — it plays it in a loop, slowed down, frame by frame.
 
-## Sous le capot
+## Under the hood
 
-React 19, Vite, Firebase (Auth + Firestore), `@hello-pangea/dnd` pour le
-glisser-déposer. Aucun framework de style : une seule feuille CSS, construite
-sur des variables de thème.
+React 19, Vite, Firebase (Auth + Firestore), `@hello-pangea/dnd` for drag and
+drop. No styling framework: a single CSS sheet, built on theme variables.
 
 ```
 src/
-├── components/   les vues et les panneaux
-├── hooks/        useBoard (l'état et la synchro), useTabs, useAuth…
-├── lib/          la logique pure — et c'est là que sont les tests
+├── components/   views and panels
+├── hooks/        useBoard (state and sync), useTabs, useAuth…
+├── lib/          pure logic — and that is where the tests are
 └── styles/       app.css
 ```
 
-**La logique métier vit dans `src/lib`, en fonctions pures**, séparée du rendu :
-le déplacement d'une carte entre boards, le découpage d'Horizon, la disposition
-radiale de la carte mentale, la recherche. C'est ce qui est testé — 203 tests.
+**Business logic lives in `src/lib`, as pure functions**, separate from
+rendering: moving a card between boards, slicing the Agenda, the radial layout of
+the mind map, search. That is what is tested.
 
-Pour le pourquoi des décisions — le modèle de données, la synchronisation, les
-pièges rencontrés — voir **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
+For the why behind the decisions — the data model, synchronisation, the traps
+we hit — see **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
 
-## Licence
+## License
 
 [MIT](LICENSE)

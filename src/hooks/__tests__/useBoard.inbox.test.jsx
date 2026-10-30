@@ -102,7 +102,7 @@ describe("Inbox account integration", () => {
     expect(board.inbox).toEqual([]);
     expect(board.root.columns[0].cards[0].id).toBe(card.id);
   });
-  it("files an Action Plan drop with its date and order in one undo step", async () => {
+  it("files an Agenda drop with its date and order in one undo step", async () => {
     await act(() => board.captureInbox("Plan this"));
     const card = board.inbox[0];
     await act(() => board.fileInbox(card.id, [], "tasks", undefined, undefined, { dueAt: "2020-01-01", lane: "today", index: 0 }));

@@ -5269,7 +5269,7 @@ body {
   color: var(--text);
 }
 
-/* Horizon, within a thumb's reach ----------------------------------------- */
+/* Agenda, within a thumb's reach ----------------------------------------- */
 .week-fab {
   position: fixed;
   right: 22px;
@@ -5507,7 +5507,7 @@ body {
   border: 1px solid var(--border2);
   border-radius: var(--radius-sm);
 }
-/* Named rather than assumed: Horizon has no column of its own to write into */
+/* Named rather than assumed: the Agenda has no column of its own to write into */
 .planner-add-where {
   display: flex;
   align-items: center;

@@ -31,7 +31,7 @@ function fixture({ mobile = true, tops = [320, 80, 0] } = {}) {
   return { wrap, lanes };
 }
 
-describe("Action Plan drag scrolling", () => {
+describe("Agenda drag scrolling", () => {
   it("preserves independently scrolled lanes before measuring a common drop area", () => {
     const { wrap, lanes } = fixture();
     const restore = preparePlannerDrag(wrap);

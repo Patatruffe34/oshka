@@ -204,9 +204,9 @@ function registerTools(server, uid) {
   tool(
     "get_agenda",
     {
-      title: "Agenda (Horizon)",
+      title: "Agenda",
       description:
-        "What to do and when, across the whole tree, as the Horizon view lays it out: today (overdue included), tomorrow, this week, next week, later — and stalled branches, boards with a ✅ column that still hold work but no date anywhere.",
+        "What to do and when, across the whole tree, as the Agenda view lays it out: today (overdue included), tomorrow, this week, next week, later — and stalled branches, boards with a ✅ column that still hold work but no date anywhere.",
       inputSchema: {
         lanes: z.array(z.enum(LANES)).optional().describe("Only these lanes (default all)"),
       },

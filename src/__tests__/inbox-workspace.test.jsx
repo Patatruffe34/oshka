@@ -32,7 +32,7 @@ afterEach(async () => {
   localStorage.clear();
   vi.restoreAllMocks();
 });
-it.each([true, false])("connects Inbox and Action Plan even when scheduled tasks exist: %s", async (scheduled) => {
+it.each([true, false])("connects Inbox and Agenda even when scheduled tasks exist: %s", async (scheduled) => {
   if (!scheduled) {
     const board = { columns: [{ id: "tasks", title: "Tasks", cards: [] }], inbox: [makeCard("Inbox task")] };
     firestore.getDoc.mockResolvedValue({ exists: () => true, data: () => ({ boardJson: JSON.stringify(board) }) });

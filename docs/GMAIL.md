@@ -1,108 +1,110 @@
-# Capturer un mail Gmail dans Oshka
+# Capturing a Gmail email in Oshka
 
-Le module Google Workspace **Oshka** ajoute le mail ouvert à l’Inbox dès son
-ouverture, sans formulaire d’édition : objet, expéditeur, date, extrait de
-500 caractères et lien vers la conversation Gmail. Tant que le panneau Oshka
-reste ouvert, chaque mail consulté est ajouté automatiquement. Ferme le panneau
-pour arrêter la capture. Un écran confirme chaque ajout ou propose de réessayer
-en cas d’échec. Une nouvelle tentative sur le même mail ne crée pas une
-seconde carte, même après rangement de la première.
+The **Oshka** Google Workspace add-on adds the open email to the Inbox as soon
+as it is opened, without an edit form: subject, sender, date, a 500-character
+excerpt and a link to the Gmail conversation. While the Oshka panel stays open,
+every email you view is added automatically. Close the panel to stop capturing.
+A screen confirms each addition or offers to retry on failure. Retrying on the
+same email does not create a second card, even after the first one was filed.
 
-Sur Mac : Gmail dans le navigateur, icône Oshka dans la barre à droite.
-Sur iPhone : app Gmail, ouvre un mail puis trouve Oshka en bas du message.
-Le module utilise Apps Script : les modules HTTP déployés via l’API Google
-Workspace Add-ons ne prennent pas encore en charge les fonctionnalités iOS.
+On Mac: Gmail in the browser, Oshka icon in the right-hand sidebar.
+On iPhone: Gmail app, open an email and find Oshka at the bottom of the message.
+The add-on uses Apps Script: HTTP add-ons deployed through the Google Workspace
+Add-ons API do not support iOS features yet.
 
-## Installation privée
+The add-on's own interface (`Code.gs`) is in French; the labels below are
+quoted as they appear.
 
-Cette première version s’installe depuis un projet Apps Script ; elle n’est pas
-encore distribuée dans Google Workspace Marketplace. Chaque compte Google doit
-installer et autoriser le module. L’installation sur un compte est partagée entre
-Gmail sur Mac et sur iPhone.
+## Private installation
 
-1. Crée un projet dans [Google Apps Script](https://script.google.com/home).
-2. Remplace `Code.gs` par [`integrations/gmail/Code.gs`](../integrations/gmail/Code.gs).
-   Dans ce fichier et dans le manifeste ci-dessous, remplace `<projet>` par l’ID
-   du projet Firebase de ton instance.
-3. Dans **Paramètres du projet**, active l’affichage du manifeste `appsscript.json`.
-4. Dans l’éditeur, remplace le manifeste par
+This first version installs from an Apps Script project; it is not distributed
+on the Google Workspace Marketplace yet. Each Google account has to install and
+authorise the add-on. An installation on one account is shared between Gmail on
+Mac and on iPhone.
+
+1. Create a project in [Google Apps Script](https://script.google.com/home).
+2. Replace `Code.gs` with [`integrations/gmail/Code.gs`](../integrations/gmail/Code.gs).
+   In this file and in the manifest below, replace `<project>` with the
+   Firebase project ID of your instance.
+3. In **Project Settings**, enable showing the `appsscript.json` manifest.
+4. In the editor, replace the manifest with
    [`integrations/gmail/appsscript.json`](../integrations/gmail/appsscript.json).
-5. Enregistre, puis **Déployer → Tester les déploiements → Installer**.
-6. Ouvre Gmail et autorise le module Oshka pour ce compte Google.
+5. Save, then **Deploy → Test deployments → Install**.
+6. Open Gmail and authorise the Oshka add-on for this Google account.
 
-Ne partage pas le projet Apps Script ni son accès éditeur pour installer le
-module sur d’autres comptes sans avoir décidé explicitement de leur donner ces
-droits.
+Do not share the Apps Script project or its editor access to install the
+add-on on other accounts unless you have explicitly decided to give them those
+rights.
 
-## Relier Oshka une fois
+## Linking Oshka once
 
-1. Dans Oshka : **Paramètres → Connexions et partage → Gmail → Créer un code de connexion**.
-2. Dans Gmail : ouvre Oshka, colle ce code, puis **Connecter Oshka**.
-3. Ouvre le mail à conserver puis le module **Oshka** : la carte est créée
-   immédiatement avec l’objet du mail comme titre. Si un mail est déjà ouvert
-   lors de la connexion, il est capturé dès la connexion réussie.
+1. In Oshka: **Settings → Connections & sharing → Gmail → Create a connection code**.
+2. In Gmail: open Oshka, paste the code, then **Connecter Oshka**.
+3. Open the email to keep, then the **Oshka** add-on: the card is created
+   immediately with the email's subject as its title. If an email is already
+   open when you connect, it is captured as soon as the connection succeeds.
 
-Le code est à usage unique et expire après 10 minutes. La connexion au compte
-Oshka dure au maximum un an et peut être révoquée à tout moment depuis
-**Déconnecter Gmail** dans Oshka. La révocation couvre tous les modules reliés à
-ce compte Oshka ainsi que les codes non utilisés. Après révocation, le module
-Gmail demande une nouvelle connexion lors du prochain ajout.
+The code is single-use and expires after 10 minutes. The link to the Oshka
+account lasts at most one year and can be revoked at any time with
+**Disconnect Gmail** in Oshka. Revocation covers every add-on linked to that
+Oshka account as well as unused codes. After revocation, the Gmail add-on asks
+for a new connection on the next capture.
 
-## Accès et stockage
+## Access and storage
 
-- Gmail fournit un accès temporaire au message ouvert lorsque le module est utilisé.
-- Le module ne recherche pas dans la boîte et ne lit pas les pièces jointes.
-  Il ne demande aucun droit d’envoi, de suppression ou de modification des mails.
-- Après connexion, ouvrir le module sur un mail transmet son objet, son
-  expéditeur, sa date, son extrait, son lien et ses identifiants à Oshka. Changer
-  de mail avec le panneau actif déclenche le même ajout automatique. La page
-  d’accueil sans mail sélectionné n’effectue aucune capture.
-- Le jeton Gmail temporaire ne quitte pas Apps Script. Le jeton Oshka est privé
-  au compte Google (`UserProperties`) et n’autorise que l’ajout à l’Inbox.
-- Oshka ne garde que les empreintes SHA-256 des codes et jetons, dans
-  `gmail_link_codes` et `gmail_links`. Les reçus anti-doublon (`gmail_imports`)
-  ne contiennent pas le texte du mail.
-- Le lien source conserve le compte Gmail (`authuser`), pour éviter d’ouvrir une
-  autre boîte lorsque plusieurs comptes Google sont connectés.
+- Gmail grants temporary access to the open message when the add-on is used.
+- The add-on does not search the mailbox and does not read attachments. It asks
+  for no right to send, delete or modify emails.
+- Once connected, opening the add-on on an email sends its subject, sender,
+  date, excerpt, link and identifiers to Oshka. Switching emails with the panel
+  active triggers the same automatic capture. The home page with no email
+  selected captures nothing.
+- The temporary Gmail token never leaves Apps Script. The Oshka token is
+  private to the Google account (`UserProperties`) and only allows adding to
+  the Inbox.
+- Oshka only keeps SHA-256 hashes of codes and tokens, in `gmail_link_codes`
+  and `gmail_links`. Deduplication receipts (`gmail_imports`) do not contain
+  the email's text.
+- The source link keeps the Gmail account (`authuser`), so that another mailbox
+  does not open when several Google accounts are signed in.
 
-Le backend écrit le même document `boards/{uid}` que Slack. La limite existante
-sur les écritures concurrentes du document complet est décrite dans
+The backend writes the same `boards/{uid}` document as Slack. The existing
+limitation on concurrent writes to the whole document is described in
 [SLACK.md](SLACK.md).
 
-## Déploiement
+## Deployment
 
 ```sh
 npm run build:functions
 npm test
 npm run build
-npx --yes firebase-tools@15.34.1 deploy --only functions:gmail,hosting,firestore:indexes --project <projet>
+npx --yes firebase-tools@15.34.1 deploy --only functions:gmail,hosting,firestore:indexes --project <project>
 ```
 
-Aucun nouveau secret Firebase ni clé Gmail n’est nécessaire. Pour mettre à jour
-le module privé, remplace les fichiers modifiés dans le même projet Apps Script,
-enregistre puis ferme et rouvre le module dans Gmail. La connexion existante
-reste conservée ; une correction limitée à `Code.gs` ne demande pas de modifier
-le manifeste.
+No new Firebase secret or Gmail key is needed. To update the private add-on,
+replace the changed files in the same Apps Script project, save, then close and
+reopen the add-on in Gmail. The existing connection is kept; a fix limited to
+`Code.gs` does not require changing the manifest.
 
-Le bouton **Réessayer**, affiché uniquement après un échec, lie sa carte à
-l’identifiant canonique renvoyé par
-`GmailApp.getMessageById(...).getId()`. Lors du clic, il relit le message courant
-et compare cet identifiant canonique à celui de la carte. L’identifiant de
-l’événement Gmail peut être de la forme `msg-f:...` : le comparer directement à
-la valeur hexadécimale de `getId()` bloquait à tort chaque capture avec le message
-« Le mail sélectionné a changé ». Le test du module reproduit les deux formats
-et récupère les paramètres depuis le véritable bouton construit par le code.
+The **Réessayer** (retry) button, shown only after a failure, ties its card to
+the canonical identifier returned by `GmailApp.getMessageById(...).getId()`. On
+click, it reads the current message again and compares that canonical
+identifier with the card's. The Gmail event identifier can look like
+`msg-f:...`: comparing it directly with the hexadecimal value of `getId()`
+wrongly blocked every capture with the message "Le mail sélectionné a changé"
+(the selected email changed). The add-on test reproduces both formats and reads
+the parameters from the real button built by the code.
 
-Le serveur accepte les deux formes de liens Gmail : ceux avec un fragment
-`#inbox/...` et les permaliens Apps Script de la forme
-`https://mail.google.com/mail?extsrc=sync&client=docs&plid=...`. Exiger un `/`
-final et un fragment rejetait ces derniers avec `invalid_mail` (HTTP 400).
-Les tests du module vérifient désormais le contrat réel du validateur serveur.
-Les diagnostics ne journalisent que le statut, le code d’erreur et le nom du
-champ rejeté, jamais les valeurs du mail, les liens ni les jetons.
+The server accepts both forms of Gmail links: those with an `#inbox/...`
+fragment and Apps Script permalinks such as
+`https://mail.google.com/mail?extsrc=sync&client=docs&plid=...`. Requiring a
+trailing `/` and a fragment rejected the latter with `invalid_mail` (HTTP 400).
+The add-on tests now check the server validator's real contract. Diagnostics
+only log the status, the error code and the name of the rejected field, never
+the email's values, links or tokens.
 
-Documentation Google :
-[installation et tests](https://developers.google.com/workspace/add-ons/how-tos/testing-workspace-addons),
-[utilisation sur ordinateur et mobile](https://developers.google.com/workspace/add-ons/guides/using-addons),
-[permissions temporaires Gmail](https://developers.google.com/workspace/add-ons/concepts/workspace-scopes),
-[limites iOS de l’API Add-ons](https://developers.google.com/workspace/add-ons/overview).
+Google documentation:
+[installing and testing](https://developers.google.com/workspace/add-ons/how-tos/testing-workspace-addons),
+[using add-ons on desktop and mobile](https://developers.google.com/workspace/add-ons/guides/using-addons),
+[temporary Gmail permissions](https://developers.google.com/workspace/add-ons/concepts/workspace-scopes),
+[iOS limits of the Add-ons API](https://developers.google.com/workspace/add-ons/overview).

@@ -163,7 +163,7 @@ describe("Gmail automatic capture", () => {
     expect(manifest.oauthScopes).toContain("https://www.googleapis.com/auth/gmail.addons.current.message.readonly");
     expect(manifest.oauthScopes).not.toContain("https://mail.google.com/");
     expect(manifest.oauthScopes).not.toContain("https://www.googleapis.com/auth/gmail.readonly");
-    expect(manifest.urlFetchWhitelist).toEqual(["https://<projet>.web.app/integrations/gmail/"]);
+    expect(manifest.urlFetchWhitelist).toEqual(["https://<project>.web.app/integrations/gmail/"]);
     expect(manifest.addOns.gmail.contextualTriggers[0].onTriggerFunction).toBe("onGmailMessageOpen");
   });
 });

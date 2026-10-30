@@ -15,7 +15,7 @@
   },
   "oauth_config": { "scopes": { "bot": ["commands"] } },
   "settings": {
-    "interactivity": { "is_enabled": true, "request_url": "https://<projet>.web.app/integrations/slack/interactions" },
+    "interactivity": { "is_enabled": true, "request_url": "https://<project>.web.app/integrations/slack/interactions" },
     "socket_mode_enabled": false,
     "org_deploy_enabled": false
   }

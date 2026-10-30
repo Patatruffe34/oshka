@@ -2,7 +2,7 @@
  * The calendar day, as the person using the app is living it.
  *
  * Local, never UTC: at 23:30 in Paris it is still today here, even though
- * UTC has already moved on — and "today" is what Horizon and the due badges
+ * UTC has already moved on — and "today" is what the Agenda and the due badges
  * are about.
  */
 export function localDay(date = new Date()) {

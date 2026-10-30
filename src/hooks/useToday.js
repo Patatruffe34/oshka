@@ -5,7 +5,7 @@ import { localDay, msUntilNextDay } from "../lib/day";
  * Today's date, kept current.
  *
  * A PWA is rarely opened, mostly resumed: put away in the evening and brought
- * back in the morning, it was still drawing yesterday — Horizon's "today"
+ * back in the morning, it was still drawing yesterday — the Agenda's "today"
  * showed the day before, and nothing was late yet. So the day is looked at
  * again every time the app comes back into view, and at midnight for one left
  * open on screen.

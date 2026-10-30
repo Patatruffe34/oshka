@@ -1,98 +1,99 @@
-# Ajouter un message Slack à l’Inbox
+# Adding a Slack message to the Inbox
 
-Le message est choisi explicitement depuis son menu. Une fenêtre Slack permet
-de modifier le titre, puis de confirmer l’ajout. La carte contient le texte et
-le lien permanent du message, y compris pour une réponse dans un fil.
-Aucun message n’est publié dans un canal par l’intégration.
+The message is chosen explicitly from its menu. A Slack dialog lets you edit
+the title, then confirm. The card holds the text and the message's permalink,
+including for a reply in a thread. The integration never posts anything to a
+channel.
 
-## 1. Configurer l’app créée dans Slack
+## 1. Configure the app created in Slack
 
-Dans **App Manifest**, importer le JSON de
-[`functions/slack/manifest.json`](../functions/slack/manifest.json), après y avoir
-remplacé `<projet>` par l’ID du projet Firebase, puis enregistrer. Cela configure :
+In **App Manifest**, import the JSON from
+[`functions/slack/manifest.json`](../functions/slack/manifest.json), after
+replacing `<project>` in it with the Firebase project ID, then save. This sets
+up:
 
-- **Interactivity & Shortcuts** activé.
-- Request URL : `https://<projet>.web.app/integrations/slack/interactions`.
-- Un raccourci **On messages** : **Ajouter à Oshka**.
-- Callback ID : `oshka_save_message`.
-- **OAuth & Permissions → Bot Token Scopes** : uniquement `commands`.
+- **Interactivity & Shortcuts** enabled.
+- Request URL: `https://<project>.web.app/integrations/slack/interactions`.
+- An **On messages** shortcut: **Ajouter à Oshka** (Add to Oshka).
+- Callback ID: `oshka_save_message`.
+- **OAuth & Permissions → Bot Token Scopes**: `commands` only.
 
-Pas de scopes de lecture de l’historique, pas de `chat:write`, pas d’abonnement
-aux événements. **Socket Mode** reste désactivé. Cette version utilise le token
-d’une seule installation dans un workspace ; l’ajout à d’autres workspaces
-nécessiterait un parcours OAuth multi-workspace supplémentaire.
+No history-reading scopes, no `chat:write`, no event subscriptions. **Socket
+Mode** stays off. This version uses the token of a single installation in one
+workspace; adding it to other workspaces would need an additional
+multi-workspace OAuth flow.
 
-## 2. Installer dans le workspace et configurer les secrets
+## 2. Install in the workspace and configure the secrets
 
-Dans **Install App**, installer l’app dans le workspace choisi. Récupérer :
+In **Install App**, install the app in the chosen workspace. Collect:
 
 - **Basic Information → App Credentials → Signing Secret**.
-- **OAuth & Permissions → Bot User OAuth Token** (commence par `xoxb-`).
+- **OAuth & Permissions → Bot User OAuth Token** (starts with `xoxb-`).
 
-Ne pas coller ces valeurs dans un chat, dans un fichier suivi par Git, ni dans
-un argument de commande. Les commandes suivantes demandent chacune la valeur
-de façon interactive et l’enregistrent dans Google Secret Manager :
+Do not paste these values into a chat, a file tracked by Git, or a command
+argument. Each of the following commands asks for the value interactively and
+stores it in Google Secret Manager:
 
 ```bash
-npx --yes firebase-tools@15.34.1 functions:secrets:set OSHKA_SLACK_SIGNING_SECRET --project <projet>
-npx --yes firebase-tools@15.34.1 functions:secrets:set OSHKA_SLACK_BOT_TOKEN --project <projet>
+npx --yes firebase-tools@15.34.1 functions:secrets:set OSHKA_SLACK_SIGNING_SECRET --project <project>
+npx --yes firebase-tools@15.34.1 functions:secrets:set OSHKA_SLACK_BOT_TOKEN --project <project>
 ```
 
-Exécuter les commandes une par une. Attendre l’invite **Enter a value for…**,
-puis coller uniquement le secret et valider avec Entrée. Les caractères saisis
-ne sont pas affichés. Attendre la confirmation de création de la version avant
-de lancer la deuxième commande. Le CLI npm évite l’ancien binaire autonome
-`/usr/local/bin/firebase` (13.4.0), qui ne présentait pas l’invite correctement.
+Run the commands one at a time. Wait for the **Enter a value for…** prompt,
+then paste only the secret and press Enter. Typed characters are not shown.
+Wait for the confirmation that the version was created before running the
+second command. The npm CLI avoids the old standalone binary
+`/usr/local/bin/firebase` (13.4.0), which did not show the prompt properly.
 
-## 3. Déployer le service et l’interface
+## 3. Deploy the service and the interface
 
-Après configuration des deux secrets :
+Once both secrets are set:
 
 ```bash
 npm run build
-npx --yes firebase-tools@15.34.1 deploy --only functions:slack,hosting,firestore:indexes --project <projet>
+npx --yes firebase-tools@15.34.1 deploy --only functions:slack,hosting,firestore:indexes --project <project>
 ```
 
-Le pré-déploiement Functions compile déjà les fonctions métier partagées.
-Les règles Firestore existantes ferment toutes les collections de l’intégration
-aux clients ; seul le service Admin peut les lire et les modifier. Les TTL
-suppriment les codes et captures temporaires expirés.
+The Functions predeploy step already builds the shared business functions. The
+existing Firestore rules close every collection of the integration to clients;
+only the Admin service can read and write them. TTL policies delete expired
+temporary codes and captures.
 
-## 4. Relier son compte Oshka
+## 4. Link your Oshka account
 
-1. Dans Oshka : **Paramètres → Connexions et partage → Slack → Créer un code de connexion**.
-2. Copier le code (valable 10 minutes, à usage unique).
-3. Dans Slack, ouvrir le menu d’un message, puis **Ajouter à Oshka**.
-4. Coller le code dans la fenêtre et confirmer.
+1. In Oshka: **Settings → Connections & sharing → Slack → Create a connection code**.
+2. Copy the code (valid for 10 minutes, single-use).
+3. In Slack, open a message's menu, then **Ajouter à Oshka**.
+4. Paste the code in the dialog and confirm.
 
-Les captures suivantes demandent seulement la confirmation du titre. La liaison
-porte sur le couple **workspace + utilisateur Slack**, jamais sur tout le
-workspace. Chacun utilise son propre compte Oshka. **Déconnecter Slack** dans
-Oshka retire les liaisons de ce compte et révoque ses codes en attente.
+Later captures only ask to confirm the title. The link applies to the pair
+**workspace + Slack user**, never to the whole workspace. Everyone uses their
+own Oshka account. **Disconnect Slack** in Oshka removes that account's links
+and revokes its pending codes.
 
 ## Validation
 
-Les tests couvrent le endpoint HTTP, les signatures HMAC, le rejet des requêtes
-anciennes et des autres workspaces, la liaison à usage unique, les sessions
-expirées, les captures atomiques et les répétitions sans doublon, même après
-rangement de la carte. Le fichier `src/lib/__tests__/slack.test.js` nécessite
-que le bundle métier ait été généré avec `npm run build:functions`.
+The tests cover the HTTP endpoint, HMAC signatures, rejection of stale requests
+and of other workspaces, single-use linking, expired sessions, atomic captures
+and repeats without duplicates, even after the card was filed. The file
+`src/lib/__tests__/slack.test.js` needs the business bundle to have been built
+with `npm run build:functions`.
 
-`chat.getPermalink` utilise GET avec `channel` et `message_ts` en paramètres
-d’URL. Un POST JSON renvoyait `invalid_arguments`, avant même l’ouverture de la
-fenêtre. Le test HTTP reproduit ce refus : un mock qui accepte tous les verbes
-ne couvre pas ce contrat. Le client partagé impose le verbe de chaque méthode.
-Les logs conservent la méthode et le code d’erreur, sans contenu de message,
-corps de réponse Slack, code de connexion ni token.
+`chat.getPermalink` uses GET with `channel` and `message_ts` as URL parameters.
+A JSON POST returned `invalid_arguments`, before the dialog even opened. The
+HTTP test reproduces that refusal: a mock that accepts every verb does not
+cover this contract. The shared client enforces each method's verb. Logs keep
+the method and the error code, without message content, Slack response body,
+connection code or token.
 
-Avant de considérer l’installation validée, tester depuis le Slack réel sur
-iPhone et Mac : un message de canal, une réponse dans un fil et un message privé,
-puis retrouver le bon message via le lien de la carte. Vérifier aussi qu’un
-second ajout ne crée pas de doublon. Un premier appel sur une fonction froide
-peut nécessiter une nouvelle tentative si Slack expire son délai de 3 secondes.
+Before considering the installation validated, test from the real Slack on
+iPhone and Mac: a channel message, a reply in a thread and a direct message,
+then find the right message again through the card's link. Also check that a
+second capture does not create a duplicate. A first call on a cold function may
+need a retry if Slack hits its 3-second timeout.
 
-Comme le serveur MCP, cette intégration écrit `boardJson` dans une transaction.
-La limitation existante des deux rédacteurs décrite dans `ARCHITECTURE.md`
-s’applique : une écriture de l’app déjà en vol peut encore remplacer un ajout
-externe. Le correctif architectural de synchronisation reste distinct de cette
-intégration ; un reçu de déduplication ne constitue pas une sauvegarde du board.
+Like the MCP server, this integration writes `boardJson` in a transaction. The
+existing two-writers limitation described in `ARCHITECTURE.md` applies: an app
+write already in flight can still overwrite an external capture. The
+architectural sync fix is separate from this integration; a deduplication
+receipt is not a backup of the board.

@@ -249,7 +249,7 @@ export default function App({ initialShare = null }) {
    * The "+" opens an empty tab, at the end.
    *
    * It used to open a copy of wherever you were standing, which reads as a
-   * duplicate of the tab you are on — or, from Horizon, as the last board
+   * duplicate of the tab you are on — or, from the Agenda, as the last board
    * reappearing on its own, since that is the position the tree still holds.
    * A new tab is a fresh start, so it starts at the root.
    */

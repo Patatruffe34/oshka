@@ -114,7 +114,7 @@ describe("mobile Clean section", () => {
   it("closes the header menu after archiving", async () => {
     compact = true;
     const onArchiveDone = vi.fn();
-    await act(() => root.render(<I18nProvider><Header path={[]} pageTitle="Action Plan" online theme="light" onArchiveDone={onArchiveDone} completedCount={2} archivedCount={1} /></I18nProvider>));
+    await act(() => root.render(<I18nProvider><Header path={[]} pageTitle="Agenda" online theme="light" onArchiveDone={onArchiveDone} completedCount={2} archivedCount={1} /></I18nProvider>));
     await click(host.querySelector('button[title="Menu"]'));
     expect(document.querySelector(".cleanup-mobile")).not.toBeNull();
     await click(document.querySelector(".cleanup-action"));

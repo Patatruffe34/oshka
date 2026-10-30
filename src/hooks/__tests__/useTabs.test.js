@@ -1,27 +1,27 @@
 import { describe, it, expect } from "vitest";
-import { withHorizon, placeTab } from "../useTabs";
+import { withAgenda, placeTab } from "../useTabs";
 
-/* Horizon is permanent, which is what lets the top bar drop its button. If it
+/* The Agenda is permanent, which is what lets the top bar drop its button. If it
    could ever be absent, that button's removal would strand someone. */
-describe("withHorizon", () => {
+describe("withAgenda", () => {
   const board = { id: "a", segments: [] };
 
-  it("ajoute Horizon quand il manque, en tete", () => {
-    const out = withHorizon({ tabs: [board], activeId: "a" });
+  it("ajoute l'Agenda quand il manque, en tete", () => {
+    const out = withAgenda({ tabs: [board], activeId: "a" });
     expect(out.tabs).toHaveLength(2);
     expect(out.tabs[0].view).toBe("week");
     expect(out.tabs[1]).toBe(board);
   });
 
   it("ne touche pas a l'onglet actif en l'ajoutant", () => {
-    // Arriver sur Horizon parce qu'il vient d'etre cree serait un deplacement
+    // Arriver sur l'Agenda parce qu'il vient d'etre cree serait un deplacement
     // que personne n'a demande.
-    expect(withHorizon({ tabs: [board], activeId: "a" }).activeId).toBe("a");
+    expect(withAgenda({ tabs: [board], activeId: "a" }).activeId).toBe("a");
   });
 
   it("n'en ajoute pas un second", () => {
     const deja = { tabs: [{ id: "h", segments: [], view: "week" }, board], activeId: "a" };
-    expect(withHorizon(deja)).toBe(deja);
+    expect(withAgenda(deja)).toBe(deja);
   });
 });
 
@@ -42,7 +42,7 @@ describe("placeTab", () => {
   });
 
   it("ne passe jamais devant les vues ancrees a gauche", () => {
-    // Depuis Horizon, "a cote" voudrait dire en position 1, devant lui
+    // Depuis l'Agenda, "a cote" voudrait dire en position 1, devant lui
     expect(ids(placeTab(strip, neuf, { activeId: "h" }))).toEqual(["h", "n", "a", "b"]);
     // Et le jour ou il y a deux vues, "a cote" de la premiere tomberait
     // entre les deux: le plancher est la bande epinglee entiere, pas la vue

@@ -8,14 +8,14 @@
     "https://www.googleapis.com/auth/userinfo.email",
     "https://www.googleapis.com/auth/script.external_request"
   ],
-  "urlFetchWhitelist": ["https://<projet>.web.app/integrations/gmail/"],
+  "urlFetchWhitelist": ["https://<project>.web.app/integrations/gmail/"],
   "addOns": {
     "common": {
       "name": "Oshka",
-      "logoUrl": "https://<projet>.web.app/icon-192.png",
+      "logoUrl": "https://<project>.web.app/icon-192.png",
       "layoutProperties": { "primaryColor": "#b83b28", "secondaryColor": "#b83b28" },
       "homepageTrigger": { "runFunction": "onGmailHomepage" },
-      "openLinkUrlPrefixes": ["https://<projet>.web.app/"]
+      "openLinkUrlPrefixes": ["https://<project>.web.app/"]
     },
     "gmail": {
       "contextualTriggers": [{ "unconditional": {}, "onTriggerFunction": "onGmailMessageOpen" }]

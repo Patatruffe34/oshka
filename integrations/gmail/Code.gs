@@ -1,5 +1,5 @@
 /** Oshka Gmail add-on. Only the current message is read, on user interaction. */
-var OSHKA_ORIGIN = "https://<projet>.web.app";
+var OSHKA_ORIGIN = "https://<project>.web.app";
 var OSHKA_TOKEN_KEY = "oshka_inbox_token_v1";
 
 function onGmailHomepage() {

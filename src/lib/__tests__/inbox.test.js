@@ -96,7 +96,7 @@ describe("Inbox", () => {
     expect(board.inbox[0].dueAt).toBeNull();
     expect(board.columns[0].cards[0].rank).toBeUndefined();
   });
-  it("turns an Inbox drop in Action Plan into a pending date without changing the account", () => {
+  it("turns an Inbox drop in the Agenda into a pending date without changing the account", () => {
     const card = note();
     const board = captureInboxCard(fixture(), card);
     const result = { source: { droppableId: "oshka:inbox", index: 0 }, destination: { droppableId: "tomorrow", index: 1 }, draggableId: card.id, reason: "DROP" };

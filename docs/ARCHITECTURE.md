@@ -1,467 +1,455 @@
 # Architecture
 
-Ce document explique **pourquoi** le code est fait ainsi. Le *quoi* se lit dans
-les fichiers ; ce qui se perd, ce sont les raisons — et les pièges déjà payés.
+This document explains **why** the code is built the way it is. The *what* can
+be read in the files; what gets lost are the reasons — and the traps already
+paid for.
 
 ---
 
-## Le modèle de données
+## The data model
 
-Tout l'arbre d'un utilisateur tient dans **un seul document Firestore**,
-`boards/{uid}`, sérialisé en JSON.
+A user's whole tree fits in **a single Firestore document**, `boards/{uid}`,
+serialised as JSON.
 
 ```js
 board = { columns: [ column ] }
 column = { id, title, emoji, color, cards: [ card ] }
 card   = { id, title, description, comments, done, doneAt, archived,
-           labels, dueAt, repeat, checklists, board }   // ← et board recommence
+           labels, dueAt, repeat, checklists, board }   // ← and board starts over
 ```
 
-La récursion est dans la dernière ligne : une carte porte un board, qui porte des
-colonnes, qui portent des cartes. Il n'y a pas de table des boards ni de
-références croisées — la structure *est* l'arbre.
+The recursion is in the last line: a card holds a board, which holds columns,
+which hold cards. There is no boards table and no cross-references — the
+structure *is* the tree.
 
-**Pourquoi un seul document.** Du texte compresse bien : un arbre de plusieurs
-centaines de cartes reste à quelques dizaines de kilo-octets, très loin de la
-limite d'un mégaoctet par document. En échange, l'arbre entier est en mémoire à
-tout instant, et c'est ce qui rend possibles les vues transverses : Horizon, la
-carte mentale, le plan et la recherche le parcourent sans une seule requête
-réseau.
+**Why a single document.** Text compresses well: a tree of several hundred
+cards stays at a few dozen kilobytes, far below the one-megabyte limit per
+document. In exchange, the whole tree is in memory at all times, and that is
+what makes the cross-cutting views possible: the Agenda, the mind map, the
+outline and search walk it without a single network request.
 
-**Quand il faudra changer.** Le déclencheur n'est pas la taille, c'est le
-**partage à plusieurs**. Deux personnes sur un même document, c'est le dernier
-qui écrit qui gagne. Le jour où ça arrive, il faudra découper — et toutes les
-vues transverses devront être repensées.
+**When it will have to change.** The trigger is not size, it is **sharing
+between several people**. Two people on the same document means last writer
+wins. The day that happens, it will have to be split — and every cross-cutting
+view will need rethinking.
 
 ---
 
-## L'état et la synchronisation
+## State and synchronisation
 
-`useBoard` détient l'arbre, le chemin courant, la corbeille, les favoris et les
-réglages. Il écrit dans Firestore avec un délai, et écoute les changements
-distants avec `onSnapshot`.
+`useBoard` holds the tree, the current path, the trash, favourites and
+settings. It writes to Firestore with a delay, and listens to remote changes
+with `onSnapshot`.
 
-Deux gardes protègent cette boucle, et **toutes deux viennent d'un bug de perte
-de données** :
+Two guards protect this loop, and **both come from a data-loss bug**:
 
 ```js
-if (dirty.current) return;                      // une édition locale est en cours
-if (data.boardJson === lastWrittenJson.current) return;  // c'est notre propre écho
+if (dirty.current) return;                      // a local edit is in progress
+if (data.boardJson === lastWrittenJson.current) return;  // it is our own echo
 ```
 
-Sans la première, une mise à jour distante arrivant pendant une frappe écrasait
-ce qui était en train d'être tapé. Sans la seconde, chaque sauvegarde revenait
-par l'écoute et relançait un rendu.
+Without the first, a remote update arriving mid-keystroke overwrote what was
+being typed. Without the second, every save came back through the listener and
+triggered a render.
 
-> **Faiblesse connue.** La première garde *abandonne* la mise à jour distante au
-> lieu de la rejouer plus tard. Avec deux appareils actifs en même temps, une
-> modification peut être perdue. Ça n'a pas encore été traité.
+> **Known weakness.** The first guard *drops* the remote update instead of
+> replaying it later. With two devices active at the same time, a change can be
+> lost. This has not been addressed yet.
 
-### Muter n'importe où dans l'arbre
+### Mutating anywhere in the tree
 
-Les mutations passent par `mutateAt(segments, updater, label)`, qui applique une
-fonction au board situé à un chemin donné. `mutate(...)` n'en est que le cas
-particulier : « là où je me tiens ».
+Mutations go through `mutateAt(segments, updater, label)`, which applies a
+function to the board at a given path. `mutate(...)` is just the special case:
+"where I am standing".
 
-Cette distinction n'est pas décorative. Horizon affiche des cartes venues de
-partout et peut en ouvrir une sur place ; sans cible explicite, une checklist
-modifiée depuis cette vue aurait été écrite **sur le board d'en dessous**.
-Chaque mutation de carte accepte donc un `at` optionnel.
+This distinction is not decorative. The Agenda shows cards from
+everywhere and can open one in place; without an explicit target, a checklist
+edited from that view would have been written **to the board underneath**.
+Every card mutation therefore accepts an optional `at`.
 
-**Les updaters doivent rester purs** : React les invoque deux fois en mode strict.
-Décider d'une action de suite à l'intérieur d'un updater est un piège — la
-décision se prend avant.
+**Updaters must stay pure**: React calls them twice in strict mode. Deciding a
+follow-up action inside an updater is a trap — the decision is made before.
 
-### Annuler
+### Undo
 
-Un instantané `{root, trash}` est empilé avant chaque mutation, avec une
-étiquette. Deux mutations de même étiquette rapprochées de moins de 700 ms
-fusionnent, pour qu'une frappe ne remplisse pas la pile.
+A `{root, trash}` snapshot is pushed before each mutation, with a label. Two
+mutations with the same label less than 700 ms apart merge, so that typing does
+not fill the stack.
 
-Conséquence utile : une action composée est **une seule étape**. Déposer une
-carte dans une colonne ✅ la déplace *et* la coche dans le même instantané, donc
-un seul `⌘Z` défait les deux.
+Useful consequence: a compound action is **a single step**. Dropping a card in
+a ✅ column moves it *and* ticks it in the same snapshot, so a single `⌘Z`
+undoes both.
 
-La suppression globale des archives retire définitivement les cartes archivées
-et leur contenu, sans copie dans la corbeille. Une confirmation affiche le
-nombre de cartes concernées, descendants compris. Cette opération efface les
-piles d'annulation et de rétablissement pour éviter de ressusciter les données
-supprimées ; les autres cartes et la corbeille restent présentes.
+Emptying all archives permanently removes archived cards and their content,
+with no copy in the trash. A confirmation shows how many cards are affected,
+descendants included. This operation clears the undo and redo stacks so that
+deleted data cannot be brought back to life; other cards and the trash stay.
 
-Le groupe « Clean » réunit cette suppression et l'archivage des cartes terminées.
-Ce dernier parcourt tous les tableaux, ne touche qu'aux cartes explicitement
-terminées et conserve leur contenu. Une seule étape d'annulation couvre toute
-l'opération. Le sous-menu s'ouvre au survol, au clic ou au clavier sur ordinateur ;
-ses deux actions sont directement affichées sous « Clean » dans le menu mobile.
+The "Clean" group gathers that deletion and archiving finished cards. The
+latter walks every board, only touches cards explicitly marked done and keeps
+their content. A single undo step covers the whole operation. The submenu opens
+on hover, click or keyboard on desktop; its two actions are shown directly
+under "Clean" in the mobile menu.
 
 ### Inbox
 
-Les partages mobiles arrivent sur `/share` : `title`, `text` et `url` en query
-string depuis la PWA Android (`manifest.share_target`), ou `#text=…` depuis le
-raccourci iOS signé. Le fragment garde le contenu iOS hors des requêtes HTTP.
-`main.jsx` les lit avant les réécritures d’URL de l’authentification, conserve
-une capture en attente dans `oshka_pending_share_v1` et nettoie l’URL. Ce stockage
-local permet de retrouver le partage après un aller-retour par le lien magique.
-Sans stockage disponible, il reste utilisable dans l’onglet courant.
+Mobile shares arrive on `/share`: `title`, `text` and `url` in the query string
+from the Android PWA (`manifest.share_target`), or `#text=…` from the signed iOS
+shortcut. The fragment keeps iOS content out of HTTP requests. `main.jsx` reads
+them before the authentication URL rewrites, keeps a pending capture in
+`oshka_pending_share_v1` and cleans the URL. This local storage lets the share
+survive a round trip through the magic link. Without storage available, it
+stays usable in the current tab.
 
-`SharedCapture` demande une validation explicite : une simple navigation GET ne
-modifie jamais le compte. Après connexion et chargement du board, titre et
-description sont enregistrés ensemble par `captureInbox`, en un instantané
-annulable, puis l’Inbox s’ouvre. Annuler supprime seulement la capture en attente.
-Le service worker sert le shell pour `/share`, y compris hors ligne, sans jamais
-mettre en cache l’URL contenant les paramètres du partage.
+`SharedCapture` asks for explicit confirmation: a plain GET navigation never
+changes the account. After sign-in and board load, title and description are
+saved together by `captureInbox`, in one undoable snapshot, then the Inbox
+opens. Cancelling only removes the pending capture. The service worker serves
+the shell for `/share`, offline too, without ever caching the URL that carries
+the share parameters.
 
-Sur iOS, le raccourci utilise le navigateur et sa session de connexion ; la
-session de l’application sur l’écran d’accueil peut être distincte. Son générateur
-est `scripts/build-share-shortcut.py`, son fichier signé dans `public/shortcuts/`.
-Le guide d’installation des deux plateformes est accessible dans les paramètres.
+On iOS, the shortcut uses the browser and its sign-in session; the home-screen
+app's session can be separate. Its generator is
+`scripts/build-share-shortcut.py`, its signed file goes in `public/shortcuts/`.
+The installation guide for both platforms is available in the settings.
 
-Le générateur sérialise l’entrée d’URL Encode en `WFTextTokenString` : son
-paramètre texte ne conserve pas un jeton `WFTextTokenAttachment` nu à l’import
-dans Raccourcis. La signature valide le fichier, sans vérifier que chaque action
-reçoit la valeur attendue. Le test d’export couvre ce contrat. Une invocation
-`/share` vide reste visible, y compris après connexion, avec une explication et
-un formulaire vide ; elle ne doit jamais retomber silencieusement sur le board.
+The generator serialises the URL Encode input as a `WFTextTokenString`: its
+text parameter does not keep a bare `WFTextTokenAttachment` token on import
+into Shortcuts. Signing validates the file without checking that each action
+receives the expected value. The export test covers that contract. An empty
+`/share` invocation stays visible, including after sign-in, with an explanation
+and an empty form; it must never silently fall back to the board.
 
-Les captures sans destination vivent dans `root.inbox`, un tableau de cartes au
-format habituel, hors de la hiérarchie des boards. Un compte ancien sans ce champ
-a une Inbox vide. La sérialisation JSON, la synchronisation et les instantanés
-existants incluent ainsi l'Inbox, sans ajouter de document Firestore.
+Captures without a destination live in `root.inbox`, an array of cards in the
+usual format, outside the board hierarchy. An old account without that field
+has an empty Inbox. JSON serialisation, sync and the existing snapshots thus
+include the Inbox, without adding a Firestore document.
 
-`fileInboxCard` valide le chemin et la colonne avant de retirer la capture, puis
-la déplace en conservant son identifiant et son contenu. Le déplacement est une
-seule étape annulable et respecte la préférence « terminer au dépôt » dans ✅.
-Une suppression crée une entrée de corbeille `source: "inbox"` : la restauration
-revient dans l'Inbox et ne crée pas de colonne dans le board courant.
+`fileInboxCard` validates the path and the column before removing the capture,
+then moves it while keeping its identifier and content. The move is a single
+undoable step and honours the "complete on drop" preference in ✅. Deleting
+creates a trash entry with `source: "inbox"`: restoring brings it back to the
+Inbox and does not create a column in the current board.
 
-L’Inbox occupe un panneau intégré à gauche, avec une palette bleutée distincte.
-Elle réduit la largeur de l’application sans bloquer ses interactions. Sur mobile,
-le panneau occupe le haut de l’écran et laisse le tableau utilisable en dessous.
-Le brouillon reste présent quand on referme le panneau pendant la session.
+The Inbox occupies a panel built into the left side, with a distinct bluish
+palette. It narrows the app without blocking its interactions. On mobile, the
+panel takes the top of the screen and leaves the board usable below. The draft
+stays when the panel is closed during the session.
 
-L’ouverture et la fermeture glissent sur 240 ms : depuis la gauche sur ordinateur,
-depuis le haut sur mobile, en ajustant progressivement la place du tableau.
-Le panneau fermé est immédiatement `inert` et masqué pour les lecteurs d’écran,
-mais reste rendu le temps de terminer sa sortie. Des marges animent le contenu
-sans créer d’ancêtre transformé qui décalerait les cartes glissées. Avant les
-mesures du DnD, les transitions de géométrie en cours sont terminées. La préférence
-« réduire les animations » désactive ces transitions.
+Opening and closing slide over 240 ms: from the left on desktop, from the top
+on mobile, gradually adjusting the board's space. The closed panel is
+immediately `inert` and hidden from screen readers, but stays rendered until
+its exit finishes. Margins animate the content without creating a transformed
+ancestor that would offset dragged cards. Before the DnD measurements, ongoing
+geometry transitions are finished. The "reduce motion" preference disables
+these transitions.
 
-Sur mobile (≤ 640 px), le champ de capture se replie quand on fait défiler la
-liste vers le bas, pour rendre sa hauteur aux cartes, et revient dès qu’on remonte
-ou qu’on approche du haut de la liste. Il reste déplié tant qu’il a le focus ou
-contient un brouillon. `foldCapture` (`src/lib/inbox-motion.js`) décide à partir
-du défilement : une marge ignore les petites secousses, le reflux causé par le
-repli lui-même est ignoré pendant sa transition, et le champ ne se replie pas si
-la liste n’aurait plus de quoi défiler pour le faire revenir. Le repli anime une
-ligne de grille (pas de `transform`), que `settleInboxTransition` termine avant
-les mesures du DnD ; pendant un glisser qui survole ou quitte la liste, le
-défilement ne replie ni ne déplie rien. Sur ordinateur, le champ reste fixe.
+On mobile (≤ 640 px), the capture field folds when the list is scrolled down,
+to give its height back to the cards, and returns as soon as you scroll up or
+near the top of the list. It stays unfolded while it has focus or holds a
+draft. `foldCapture` (`src/lib/inbox-motion.js`) decides from the scroll: a
+margin ignores small jolts, the reflow caused by the fold itself is ignored
+during its transition, and the field does not fold if the list would no longer
+have enough to scroll to bring it back. The fold animates a grid row (no
+`transform`), which `settleInboxTransition` finishes before the DnD
+measurements; during a drag hovering or leaving the list, scrolling neither
+folds nor unfolds anything. On desktop, the field stays fixed.
 
-L’Inbox et le board partagent un `DragDropContext` ; `useBoardDrag` conserve les
-zones de déplacement des colonnes et le défilement aux bords. Les captures sont
-glissables par leur poignée vers les colonnes du tableau courant. Le dépôt utilise
-l’index des cartes visibles (archives et filtre d’étiquettes exclus), puis range la
-capture en une seule mutation annulable.
+The Inbox and the board share one `DragDropContext`; `useBoardDrag` keeps the
+column move zones and edge scrolling. Captures can be dragged by their handle
+to the current board's columns. The drop uses the index among visible cards
+(archives and label filter excluded), then files the capture in a single
+undoable mutation.
 
-Action Plan partage également son contexte avec l’Inbox, via `usePlannerDrag`.
-Le dépôt dans une voie datée conserve la date choisie et ouvre le sélecteur de
-board : la voie du plan dit quand agir, pas où ranger la carte. La note reste dans
-l’Inbox tant que cette destination n’a pas été validée. Date, rangement et ordre
-dans « Aujourd’hui » sont appliqués en une seule étape annulable. L’annulation du
-sélecteur ne touche pas à la note. Les voies restent présentes quand le plan est
-vide mais que l’Inbox contient des captures ; « À l’arrêt » reste non déposable.
+The Agenda also shares its context with the Inbox, through
+`usePlannerDrag`. Dropping into a dated lane keeps the chosen date and opens
+the board picker: the plan's lane says when to act, not where to file the card.
+The note stays in the Inbox until that destination is confirmed. Date, filing
+and order in "Today" are applied in a single undoable step. Cancelling the
+picker leaves the note alone. Lanes stay present when the plan is empty but the
+Inbox holds captures; "Standstill" stays non-droppable.
 
-Le trajet inverse retire la carte de sa colonne par identifiant et la place dans
-l’Inbox à la position déposée. L’opération conserve l’intégralité de la carte,
-sous-board et métadonnées compris ; aucune copie ne passe par la corbeille.
-Le déplacement, la sauvegarde et l’annulation utilisent un seul instantané.
-La zone de dépôt de l’Inbox couvre la liste, même vide, et accepte les cartes du
-board courant comme celles visibles dans Action Plan. L’Inbox peut également
-être réordonnée par glisser-déposer ; fermée, elle refuse les dépôts.
+The reverse trip removes the card from its column by identifier and places it
+in the Inbox at the drop position. The operation keeps the whole card,
+sub-board and metadata included; no copy goes through the trash. Moving,
+saving and undoing use a single snapshot. The Inbox drop zone covers the list,
+even empty, and accepts cards from the current board as well as those shown in
+the Agenda. The Inbox can also be reordered by drag and drop; when closed,
+it refuses drops.
 
-Cliquer sur le titre d’une capture ouvre `CardDetail` via `InboxCardDetail`.
-Les descriptions, commentaires et checklists utilisent la même interface que
-les cartes rangées. `updateInboxCard` et `useBoard.updateInbox` ciblent
-explicitement `root.inbox` pour sauvegarder les modifications et les annuler,
-sans toucher au tableau affiché derrière. Le renommage rapide reste accessible
-par un bouton distinct ; Entrée ouvre le détail et Espace garde son rôle DnD.
+Clicking a capture's title opens `CardDetail` through `InboxCardDetail`.
+Descriptions, comments and checklists use the same interface as filed cards.
+`updateInboxCard` and `useBoard.updateInbox` explicitly target `root.inbox` to
+save and undo changes, without touching the board shown behind. Quick rename
+stays available through a separate button; Enter opens the detail and Space
+keeps its DnD role.
 
-Les descriptions et commentaires passent par `react-markdown` avec GFM et
-conservation des retours à la ligne. Le HTML reste du texte, les URL suivent le
-filtrage du moteur, avec une exception limitée aux liens `obsidian://`.
-Les longues chaînes et blocs de code reviennent à la ligne ; les tableaux larges
-défilent dans leur propre zone pour rester dans la carte.
+Descriptions and comments go through `react-markdown` with GFM and preserved
+line breaks. HTML stays text, URLs follow the engine's filtering, with a narrow
+exception for `obsidian://` links. Long strings and code blocks wrap; wide
+tables scroll within their own area to stay inside the card.
 
-Le bug initial venait de deux choix incompatibles avec ce parcours : les captures
-n’étaient pas glissables dans Action Plan, et les voies vivaient dans un contexte
-imbriqué distinct. Le test d’intégration vérifie désormais que l’Inbox et les voies
-partagent le même contexte dans l’application réelle, y compris sur un plan vide.
-
----
-
-### Actions rapides du Plan
-
-`PlannerCard` réutilise `CardMenu` pour les étiquettes, dates et répétitions,
-déplacements, renommage, archivage et suppression. `useCardShortcuts` partage
-les touches `E`, `D`, `M`, `R`, `A` avec les cartes des tableaux. Seule la carte
-survolée écoute ; la saisie de texte, la composition, les modificateurs et les
-panneaux ouverts suspendent ces raccourcis.
-
-Chaque action reçoit le chemin de la carte dans l’arbre : le tableau affiché
-derrière le Plan ne sert jamais de destination implicite. La suppression
-enregistre aussi ce chemin dans la corbeille pour restaurer la carte à sa place.
-Le menu est visible au survol, au focus et sur écran tactile. Les contrôles
-gardent leurs événements clavier ; `Entrée` sur la carte l’ouvre et `Espace`
-reste réservé au glisser-déposer.
-
-## Le glisser-déposer
-
-`@hello-pangea/dnd` (le fork maintenu de `react-beautiful-dnd`) impose deux
-contraintes qui ont chacune coûté un bug :
-
-**1. Un seul conteneur de défilement par liste, le plus proche — les conteneurs
-imbriqués ne sont pas gérés.** Tant que chaque colonne défilait ses propres
-cartes, c'était elle que la librairie surveillait, et faire glisser le board sous
-elle rendait sa géométrie fausse : la carte se posait à des colonnes de l'endroit
-visé. D'où la disposition actuelle — **le board porte les deux axes, les colonnes
-n'en portent aucun**, et les en-têtes de colonne sont collants pour rester
-lisibles.
-
-Dans Action Plan sur mobile, les colonnes défilent indépendamment pendant la
-lecture. Avant les mesures du glisser (`onBeforeCapture`), `preparePlannerDrag`
-transfère leurs positions vers le conteneur commun et étend les zones de dépôt,
-y compris celles des colonnes vides. Des marges compensent les positions de
-lecture : la carte ne saute pas, et on peut encore défiler vers le haut. Après
-le dépôt ou l'annulation, chaque colonne retrouve son défilement indépendant.
-Le balayage horizontal utilise `useColumnSwipe`, comme les boards, avec les
-colonnes du plan comme points d'arrêt. Les ancres sont désactivées avant les
-mesures du glisser et pendant le balayage, pour ne pas contrer le défilement.
-
-**2. Un glisser ne démarre pas depuis un élément interactif.** Une carte, un
-onglet ou une ligne déplaçable doit être un `div` avec `role="button"`, jamais un
-`<button>` — sinon rien ne se soulève, sans le moindre message. C'est aussi
-pourquoi `Entrée` active ces éléments : `Espace` appartient au glisser.
-
-Et une règle qui n'est pas de la librairie mais du bon sens : **les index doivent
-suivre l'ordre affiché**. Dans Horizon, les cartes sont triées par date puis
-regroupées par board — l'ordre à l'écran n'est pas celui du tableau source.
+The original bug came from two choices incompatible with this flow: captures
+were not draggable in the Agenda, and the lanes lived in a separate nested
+context. The integration test now checks that the Inbox and the lanes share the
+same context in the real app, including on an empty plan.
 
 ---
 
-## Les vues transverses
+### Agenda quick actions
 
-Elles vivent dans `src/lib`, en fonctions pures, et c'est ce qui les rend
-testables :
+`PlannerCard` reuses `CardMenu` for labels, dates and repetitions, moves,
+renaming, archiving and deletion. `useCardShortcuts` shares the `E`, `D`, `M`,
+`R`, `A` keys with board cards. Only the hovered card listens; text input,
+composition, modifiers and open panels suspend these shortcuts.
 
-| Fichier | Rôle |
+Each action receives the card's path in the tree: the board shown behind the
+Agenda is never an implicit destination. Deletion also records that path
+in the trash so the card can be restored in place. The menu shows on hover, on
+focus and on touch screens. Controls keep their keyboard events; `Enter` on the
+card opens it and `Space` stays reserved for drag and drop.
+
+## Drag and drop
+
+`@hello-pangea/dnd` (the maintained fork of `react-beautiful-dnd`) imposes two
+constraints that each cost a bug:
+
+**1. A single scroll container per list, the closest one — nested containers
+are not supported.** While each column scrolled its own cards, the library
+watched the column, and scrolling the board underneath made its geometry wrong:
+the card landed columns away from the target. Hence the current layout — **the
+board carries both axes, the columns carry none**, and column headers are
+sticky to stay readable.
+
+In the Agenda on mobile, columns scroll independently while reading.
+Before the drag measurements (`onBeforeCapture`), `preparePlannerDrag` moves
+their positions to the shared container and extends the drop zones, including
+those of empty columns. Margins compensate for the reading positions: the card
+does not jump, and you can still scroll up. After the drop or cancellation,
+each column gets its independent scrolling back. Horizontal swiping uses
+`useColumnSwipe`, like boards, with the plan's columns as snap points. Anchors
+are disabled before the drag measurements and during the swipe, so they do not
+fight the scroll.
+
+**2. A drag does not start from an interactive element.** A draggable card, tab
+or row must be a `div` with `role="button"`, never a `<button>` — otherwise
+nothing lifts, without any message. That is also why `Enter` activates these
+elements: `Space` belongs to the drag.
+
+And one rule that is not the library's but common sense: **indexes must follow
+the displayed order**. In the Agenda, cards are sorted by date then
+grouped by board — the on-screen order is not the source array's.
+
+---
+
+## Cross-cutting views
+
+They live in `src/lib`, as pure functions, and that is what makes them
+testable:
+
+| File | Role |
 |---|---|
-| `planner.js` | le découpage d'Horizon et les dates d'un dépôt |
-| `mindmap.js` | l'arbre en disque, angles proportionnels au nombre de feuilles |
-| `search.js` | parcours filtrant, avec le chemin de chaque résultat |
-| `board-utils.js` | le reste — chemins, déplacements, étiquettes, statistiques |
+| `planner.js` | slicing the Agenda and the dates of a drop |
+| `mindmap.js` | the tree as a disc, angles proportional to the number of leaves |
+| `search.js` | filtering walk, with each result's path |
+| `board-utils.js` | the rest — paths, moves, labels, statistics |
 
-### La convention de la colonne ✅
+### The ✅ column convention
 
-Une colonne dont l'emoji contient ✅ marque un board **qui progresse**. C'est une
-convention plutôt qu'un réglage : on la pose comme n'importe quelle autre icône,
-et elle se lit sur le board pour ce qu'elle est.
+A column whose emoji contains ✅ marks a board **meant to progress**. It is a
+convention rather than a setting: you set it like any other icon, and it reads
+on the board for what it is.
 
-Elle sert deux fois : une carte qu'on y dépose passe en terminée, et un board qui
-n'en a pas n'est jamais signalé comme à l'arrêt — une base de données ou une
-grille de réflexion n'a pas d'état final.
+It serves twice: a card dropped there becomes done, and a board without one is
+never flagged as at a standstill — a database or a brainstorming grid has no
+final state.
 
-### Une carte qui revient n'est jamais terminée
+### A repeating card is never done
 
-Une carte qui se répète porte `repeat = { every, unit }`, et la règle qui en
-découle tient en une phrase : **la cocher ne la termine pas, elle la reporte.**
-Son échéance avance d'une période, ses checklists se décochent, `done` reste
-faux.
+A repeating card carries `repeat = { every, unit }`, and the rule that follows
+fits in one sentence: **ticking it does not finish it, it postpones it.** Its
+due date moves forward one period, its checklists are unticked, `done` stays
+false.
 
-C'est cette phrase qui laisse le reste de l'application intacte. Comme une
-carte répétée ne devient jamais terminée, elle n'est jamais rangée sous ✅,
-jamais archivée automatiquement, et on ne demande jamais s'il faut terminer ce
-qu'elle contient — aucun de ces chemins n'a eu à apprendre la répétition. Le
-même raisonnement vaut pour un dépôt dans la colonne ✅ : c'est le même geste,
-donc la même réponse.
+That sentence is what leaves the rest of the app untouched. Since a repeating
+card never becomes done, it is never filed under ✅, never auto-archived, and
+nobody is ever asked whether to finish what it contains — none of those paths
+had to learn about repetition. The same reasoning applies to a drop in the ✅
+column: same gesture, same answer.
 
-Arrêter une série est le miroir de ça : on retire la répétition, et la coche
-suivante termine la carte comme n'importe quelle autre.
+Ending a series is the mirror of this: remove the repetition, and the next tick
+finishes the card like any other.
 
-La seule exception est **terminer une branche**, qui termine tout ce qu'elle
-contient, répétitions comprises. C'est voulu : on y déclare que le projet
-entier est fini, et c'est le seul endroit où une série s'arrête sans qu'on la
-retire. La carte garde sa règle — la décocher relance la série là où elle en
-était.
+The only exception is **completing a branch**, which completes everything it
+contains, repetitions included. That is on purpose: it declares the whole
+project finished, and it is the only place a series stops without being
+removed. The card keeps its rule — unticking it restarts the series where it
+was.
 
-**La prochaine date se compte depuis celle qui est sur la carte**, pas depuis un
-ancrage caché — reporter une occurrence reporte donc la série, et ce qu'on lit
-sur la carte est la seule chose qui décide. Elle avance ensuite jusqu'à dépasser
-aujourd'hui : un hebdomadaire coché avec trois semaines de retard revient une
-fois la semaine prochaine, pas trois fois dans le passé.
+**The next date counts from the one on the card**, not from a hidden anchor —
+postponing an occurrence therefore postpones the series, and what you read on
+the card is the only thing that decides. It then moves forward until it passes
+today: a weekly card ticked three weeks late comes back once next week, not
+three times in the past.
 
-Le seul cas ingrat est le mois : le 31 février n'existe pas, donc un jour qui
-dépasse est replié sur la fin du mois où il atterrit. Le prix, c'est qu'un
-mensuel posé le 31 reste ensuite le 28. L'alternative — un ancrage mémorisé —
-ferait qu'un déplacement à la main ne déplacerait pas la série, et cette
-surprise-là coûte plus cher que la seule date sur douze qui ne peut pas exister
-partout.
+The only awkward case is the month: 31 February does not exist, so a day that
+overflows is clamped to the end of the month it lands in. The price is that a
+monthly card set on the 31st then stays on the 28th. The alternative — a
+remembered anchor — would mean that moving it by hand would not move the
+series, and that surprise costs more than the one date in twelve that cannot
+exist everywhere.
 
-### Ce que « cette semaine » veut dire
+### What "this week" means
 
-Deux lectures possibles, qui s'écartent de six jours : le reste de la semaine
-calendaire, ou les sept prochains jours. C'est donc un réglage, pas une
-supposition. Et un dépôt vise **le vendredi** de la voie, pas son dernier jour —
-poser une échéance un dimanche ne rend service à personne.
-
----
-
-## Les onglets
-
-Plusieurs boards ouverts, un seul à l'écran. Un onglet est **une liste
-d'identifiants**, rien d'autre ; son titre est résolu depuis l'arbre au moment du
-dessin, ce qui fait qu'un renommage suit et qu'un onglet dont la carte a disparu
-s'estompe au lieu de mentir.
-
-**L'onglet affiché ne porte pas de chemin à lui : il *est* le chemin courant.**
-Seuls les autres gardent des segments, et l'un d'eux est écrit au moment où il
-cesse d'être affiché. Rien n'a besoin d'être tenu en phase, donc rien ne peut se
-désynchroniser.
-
-Ils vivent en `localStorage`, **par appareil** : ce sont les onglets de cet écran,
-pas ceux du compte. Le document Firestore n'est pas touché.
-
-Un onglet peut aussi porter une vue plutôt qu'une position — c'est le cas
-d'Horizon, ancré à gauche et non déplaçable.
+Two possible readings, six days apart: the rest of the calendar week, or the
+next seven days. So it is a setting, not an assumption. And a drop targets
+**the Friday** of the lane, not its last day — setting a due date on a Sunday
+helps nobody.
 
 ---
 
-## Hors-ligne
+## Tabs
 
-Firestore est configuré avec `persistentLocalCache`. Les écritures faites sans
-réseau sont mises en file et repartent au retour ; les lectures viennent du cache.
+Several boards open, one on screen. A tab is **a list of identifiers**, nothing
+else; its title is resolved from the tree at draw time, so a rename follows and
+a tab whose card disappeared fades instead of lying.
 
-Le service worker (`public/sw.js`) sert le shell : **réseau d'abord pour le
-document**, cache d'abord pour les fichiers versionnés. Les en-têtes d'hébergement
-suivent la même logique — `no-cache` sur le point d'entrée et le worker,
-`immutable` sur `/assets/**`.
+**The displayed tab carries no path of its own: it *is* the current path.**
+Only the others keep segments, and one is written at the moment it stops being
+displayed. Nothing needs to be kept in step, so nothing can drift apart.
 
-> Un déploiement peut ne jamais atteindre les navigateurs si le worker rejoue un
-> `index.html` périmé depuis le cache HTTP. D'où le `cache: "reload"` sur cette
-> requête précise.
+They live in `localStorage`, **per device**: these are this screen's tabs, not
+the account's. The Firestore document is not touched.
+
+A tab can also hold a view rather than a position — that is the case of the
+Agenda, pinned on the left and not movable.
 
 ---
 
-## La saisie et le clavier mobile
+## Offline
 
-Sur téléphone ou tablette tactile, valider une carte ou un item de checklist
-termine la saisie et retire explicitement le focus avant de fermer le formulaire.
-Sur ordinateur, ces formulaires restent ouverts pour permettre la saisie en série.
-Revenir du sélecteur de destination ne redonne le focus au titre que sur ordinateur.
+Firestore is configured with `persistentLocalCache`. Writes made without
+network are queued and sent again on return; reads come from the cache.
 
-`useMobileKeyboard` retire le focus après un tap hors des champs ou une navigation
-dans l'historique du navigateur. Il écoute le clic, pas le début du toucher : un
-défilement ou une sélection de texte ne doit pas interrompre la saisie. Les brouillons
-restent présents tant qu'on ne les valide ou annule pas. Les éditions enregistrées
-sur perte de focus passent par ce seul chemin à la validation pour éviter une double
-écriture. Entrée reste un retour à la ligne dans les descriptions et commentaires.
+The service worker (`public/sw.js`) serves the shell: **network first for the
+document**, cache first for versioned files. Hosting headers follow the same
+logic — `no-cache` on the entry point and the worker, `immutable` on
+`/assets/**`.
 
-## Les tests
+> A deployment can never reach browsers if the worker replays a stale
+> `index.html` from the HTTP cache. Hence the `cache: "reload"` on that exact
+> request.
 
-La plupart des tests portent sur la logique pure. Les transitions de saisie sont
-également testées avec les vrais composants React dans `happy-dom` : validation,
-annulation, composition de texte, focus mobile et conservation de la saisie en série
-sur ordinateur. Ces tests vérifient le DOM et les événements ; l'affichage du clavier
-système et les animations du navigateur nécessitent encore une vérification sur appareil.
+---
 
-**La pratique qui compte : chaque suite est éprouvée en réintroduisant les bugs
-qu'elle doit attraper.** Un test qui passe ne prouve rien tant qu'on n'a pas vu
-qu'il sait échouer.
+## Input and the mobile keyboard
 
-Ça a rattrapé plusieurs vrais défauts pendant le développement — dont une borne
-de semaine décalée d'un jour, qu'aucun des onze tests d'origine ne voyait, et une
-profondeur qui gardait la dernière branche parcourue au lieu de la plus profonde.
+On a phone or touch tablet, confirming a card or a checklist item ends input
+and explicitly removes focus before closing the form. On desktop, these forms
+stay open to allow entering several in a row. Coming back from the destination
+picker only refocuses the title on desktop.
+
+`useMobileKeyboard` removes focus after a tap outside fields or a browser
+history navigation. It listens to the click, not the start of the touch: a
+scroll or a text selection must not interrupt input. Drafts stay until they are
+confirmed or cancelled. Edits saved on blur go through this single path on
+confirmation to avoid a double write. Enter stays a line break in descriptions
+and comments.
+
+## Tests
+
+Most tests cover the pure logic. Input transitions are also tested with the
+real React components in `happy-dom`: confirmation, cancellation, text
+composition, mobile focus and keeping serial input on desktop. These tests
+check the DOM and events; the system keyboard display and browser animations
+still need checking on a device.
+
+**The practice that matters: each suite is proven by reintroducing the bugs it
+must catch.** A passing test proves nothing until you have seen that it can
+fail.
+
+That caught several real defects during development — including a week
+boundary off by one day, which none of the eleven original tests saw, and a
+depth that kept the last branch walked instead of the deepest.
 
 ```bash
-# Le geste : casser volontairement, vérifier que ça tombe, remettre.
+# The gesture: break on purpose, check that it fails, restore.
 cp src/lib/planner.js /tmp/bak
-# … modifier une borne, une comparaison, une garde …
+# … change a boundary, a comparison, a guard …
 npm test
 cp /tmp/bak src/lib/planner.js
 ```
 
 ---
 
-## Sécurité
+## Security
 
-Les règles Firestore (`firestore.rules`) tiennent en trois blocs : un utilisateur
-ne lit et n'écrit que `boards/{son uid}`, les codes de connexion sont fermés au
-client, et tout le reste est refusé par défaut.
+The Firestore rules (`firestore.rules`) fit in three blocks: a user only reads
+and writes `boards/{their uid}`, connection codes are closed to the client, and
+everything else is denied by default.
 
-Les identifiants Firebase visibles dans `src/lib/firebase.js` — `authDomain`,
-`projectId`, `storageBucket` — **sont publics par nature**. Une application web
-les expose forcément ; la sécurité tient aux règles, pas à leur discrétion. Seule
-la clé d'API passe par une variable d'environnement, par habitude.
+The Firebase identifiers used by `src/lib/firebase.js` — the project ID, from
+which `authDomain` and `storageBucket` are derived, and the API key — **are
+public by nature**. A web app necessarily exposes them; security comes from the
+rules, not from keeping them secret. They come from environment variables so
+that each instance points at its own project.
 
 ---
 
-## Le serveur MCP
+## The MCP server
 
-`functions/mcp/` expose l'arbre aux clients MCP — claude.ai (web et mobile),
-Claude Code, Codex — sur `https://<projet>.web.app/mcp`. Une seule fonction,
-`mcp` (europe-west1, à côté de Firestore), sert le protocole et l'OAuth.
+`functions/mcp/` exposes the tree to MCP clients — claude.ai (web and mobile),
+Claude Code, Codex — at `https://<project>.web.app/mcp`. A single function,
+`mcp` (europe-west1, next to Firestore), serves the protocol and OAuth.
 
-**Les mêmes règles que l'app, par le même code.** Le serveur ne réécrit pas la
-logique : `npm run build:functions` empaquette `src/lib` en CommonJS
-(`functions/mcp/build/oshka.cjs`, généré avant chaque déploiement). Cocher une
-carte qui revient, déposer dans ✅, ce que « cette semaine » veut dire : tout
-passe par les fonctions que les tests couvrent déjà. Les réglages par défaut
-vivent pour la même raison dans `src/lib/settings.js`. Le fuseau horaire du
-serveur est fixé à `Europe/Paris` (`OSHKA_TIMEZONE`), sans quoi « aujourd'hui »
-serait celui de l'UTC.
+**The same rules as the app, through the same code.** The server does not
+rewrite the logic: `npm run build:functions` bundles `src/lib` as CommonJS
+(`functions/mcp/build/oshka.cjs`, generated before each deployment). Ticking a
+repeating card, dropping into ✅, what "this week" means: everything goes
+through the functions the tests already cover. Default settings live in
+`src/lib/settings.js` for the same reason. The server's time zone is set to
+`Europe/Paris` (`OSHKA_TIMEZONE`), otherwise "today" would be UTC's.
 
-**Écrire à deux.** Chaque outil lit, modifie et réécrit `boardJson` dans une
-transaction ; corbeille, favoris et réglages ne sont pas touchés. L'app reçoit
-le changement par son `onSnapshot`. Elle hérite donc de la faiblesse connue :
-une écriture MCP qui arrive pendant une édition locale en cours peut être
-écrasée par la sauvegarde qui suit. Aucun outil ne supprime : on archive.
+**Two writers.** Each tool reads, modifies and rewrites `boardJson` in a
+transaction; trash, favourites and settings are not touched. The app receives
+the change through its `onSnapshot`. It therefore inherits the known weakness:
+an MCP write arriving during an ongoing local edit can be overwritten by the
+following save. No tool deletes: they archive.
 
-**Tout passe par le domaine de l'app.** Les réécritures Hosting envoient `/mcp`,
-`/.well-known/oauth-*`, `/authorize`, `/token`, `/register`, `/revoke` et
-`/oauth/**` à la fonction. La découverte OAuth doit vivre à la racine d'un
-domaine, et la page de connexion ne peut reprendre la session ouverte dans
-Oshka que sur la même origine — Firebase Auth la garde dans l'IndexedDB de
-celle-ci. Quelqu'un déjà connecté n'a qu'à cliquer « Autoriser ».
+**Everything goes through the app's domain.** Hosting rewrites send `/mcp`,
+`/.well-known/oauth-*`, `/authorize`, `/token`, `/register`, `/revoke` and
+`/oauth/**` to the function. OAuth discovery must live at the root of a domain,
+and the sign-in page can only reuse the session open in Oshka on the same
+origin — Firebase Auth keeps it in that origin's IndexedDB. Someone already
+signed in only has to click "Authorize".
 
-**L'OAuth.** Le serveur est son propre serveur d'autorisation, adossé à
-Firebase Auth. Le routeur du SDK MCP porte le protocole (métadonnées,
-enregistrement dynamique, PKCE, échange de jetons) ; `oauth.js` stocke ce qu'il
-faut dans Firestore :
+**OAuth.** The server is its own authorisation server, backed by Firebase Auth.
+The MCP SDK's router carries the protocol (metadata, dynamic registration,
+PKCE, token exchange); `oauth.js` stores what it needs in Firestore:
 
-| Collection | Contenu | Durée |
+| Collection | Content | Lifetime |
 |---|---|---|
-| `mcp_clients` | clients enregistrés | — |
-| `mcp_requests` | demande validée, en attente de la page | 15 min |
-| `mcp_grants` | code d'autorisation, à usage unique | 5 min |
-| `mcp_tokens` | jetons d'accès (1 h) et de rafraîchissement (60 j, renouvelés à chaque usage) | idem |
+| `mcp_clients` | registered clients | — |
+| `mcp_requests` | validated request, waiting for the page | 15 min |
+| `mcp_grants` | authorisation code, single-use | 5 min |
+| `mcp_tokens` | access tokens (1 h) and refresh tokens (60 days, renewed on each use) | same |
 
-Les codes et jetons n'y figurent que **hachés** (SHA-256). Une politique TTL
-(`firestore.indexes.json`) purge les entrées expirées. La page de connexion ne
-renvoie que l'identifiant de la demande et un jeton d'identité Firebase, vérifié
-côté serveur : rien de ce qu'elle poste ne peut élargir l'accès. L'enregistrement
-est ouvert, comme claude.ai l'exige, mais ne retient que des redirections vers
-claude.ai, claude.com ou une adresse locale (les CLI) : un inconnu ne peut pas
-créer un client qui enverrait les codes chez lui.
+Codes and tokens are only stored **hashed** (SHA-256). A TTL policy
+(`firestore.indexes.json`) purges expired entries. The sign-in page only sends
+back the request identifier and a Firebase ID token, verified server-side:
+nothing it posts can widen access. Registration is open, as claude.ai requires,
+but only accepts redirects to claude.ai, claude.com or a local address (the
+CLIs): a stranger cannot create a client that would send codes to themselves.
 
-**Tester.** `firebase emulators:start --only auth,firestore,functions,hosting
---project demo-oshka`, puis `npm run seed:local` : le serveur répond sur
-`http://localhost:5002/mcp`, avec le compte de test.
+**Testing.** `firebase emulators:start --only auth,firestore,functions,hosting
+--project demo-oshka`, then `npm run seed:local`: the server answers on
+`http://localhost:5002/mcp`, with the test account.
 
 ---
 
-## Ce qui reste ouvert
+## What remains open
 
-- **La perte de mise à jour à deux appareils** décrite plus haut.
-- **Le partage** : le modèle à un document ne s'y prête pas.
-- **Le poids du bundle** — Firebase en constitue l'essentiel. Un découpage
-  deviendra pertinent si d'autres vues s'ajoutent.
+- **The two-device update loss** described above.
+- **Sharing**: the one-document model does not lend itself to it.
+- **Bundle weight** — Firebase makes up most of it. Splitting will become
+  relevant if more views are added.
