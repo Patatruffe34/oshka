@@ -1,0 +1,23 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "dev",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "source ~/.nvm/nvm.sh && nvm use 22 && npm run dev -- --port 5173"
+      ],
+      "port": 5173
+    },
+    {
+      "name": "dev-local",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "source ~/.nvm/nvm.sh && nvm use 22 >/dev/null && firebase emulators:exec --only auth,firestore --project demo-oshka 'npm run seed:local && VITE_EMULATORS=1 npm run dev -- --port 5174 --strictPort'"
+      ],
+      "port": 5174
+    }
+  ]
+}

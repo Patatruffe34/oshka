@@ -1,0 +1,32 @@
+{
+  "name": "Oshka",
+  "short_name": "Oshka",
+  "description": "Boards within boards \u2014 a kanban that nests as deep as you need",
+  "start_url": "/",
+  "id": "/",
+  "scope": "/",
+  "share_target": {
+    "action": "/share",
+    "method": "GET",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url"
+    }
+  },
+  "display": "standalone",
+  "background_color": "#0e0e11",
+  "theme_color": "#0e0e11",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

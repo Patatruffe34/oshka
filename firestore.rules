@@ -1,0 +1,20 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Un utilisateur ne lit et n'écrit que son propre board.
+    match /boards/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Serveur MCP (mcp_clients, mcp_requests, mcp_grants, mcp_tokens) :
+    // jamais accessibles depuis le client. Seul l'Admin SDK (Cloud Functions)
+    // y touche, il contourne ces regles ; la regle par defaut les ferme.
+
+    // Tout le reste est ferme par defaut.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

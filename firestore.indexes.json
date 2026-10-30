@@ -1,0 +1,12 @@
+{
+  "indexes": [],
+  "fieldOverrides": [
+    { "collectionGroup": "gmail_link_codes", "fieldPath": "expiresAt", "ttl": true, "indexes": [] },
+    { "collectionGroup": "gmail_links", "fieldPath": "expiresAt", "ttl": true, "indexes": [] },
+    { "collectionGroup": "slack_link_codes", "fieldPath": "expiresAt", "ttl": true, "indexes": [] },
+    { "collectionGroup": "slack_captures", "fieldPath": "expiresAt", "ttl": true, "indexes": [] },
+    { "collectionGroup": "mcp_requests", "fieldPath": "expiresAt", "ttl": true, "indexes": [] },
+    { "collectionGroup": "mcp_grants", "fieldPath": "expiresAt", "ttl": true, "indexes": [] },
+    { "collectionGroup": "mcp_tokens", "fieldPath": "expiresAt", "ttl": true, "indexes": [] }
+  ]
+}
