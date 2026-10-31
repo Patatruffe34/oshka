@@ -1,11 +1,13 @@
-const express = require("express");
-const { GmailError } = require("./store");
+import express, { type ErrorRequestHandler, type RequestHandler } from "express";
+import { GmailError, type GmailStore, type Mail } from "./store";
+// What the middleware below leaves on a request
+import type {} from "../request";
 
-const bearer = (req) => /^Bearer (\S+)$/.exec(req.get("Authorization") || "")?.[1];
-const hex = (value, length) => typeof value === "string" && new RegExp(`^[a-f0-9]{${length}}$`).test(value);
+const bearer = (req: express.Request) => /^Bearer (\S+)$/.exec(req.get("Authorization") || "")?.[1];
+const hex = (value: unknown, length: string | number): value is string => typeof value === "string" && new RegExp(`^[a-f0-9]{${length}}$`).test(value);
 
-function normalizeMail(body) {
-  const string = (key, limit, required = true) => {
+export function normalizeMail(body: Record<string, unknown> | undefined): Mail {
+  const string = (key: string, limit: number, required = true) => {
     const value = body?.[key];
     if (typeof value !== "string" || value.length > limit || (required && !value.trim())) throw new GmailError("invalid_mail", 400, key);
     return value.trim();
@@ -31,10 +33,16 @@ function normalizeMail(body) {
   return { title, sender, excerpt, sentAt, mailbox, messageId, threadId, url: url.href };
 }
 
-function createGmailApp({ verifyIdToken, store, logger = console }) {
+export interface GmailAppOptions {
+  verifyIdToken: (token: string) => Promise<{ uid: string }>;
+  store: GmailStore;
+  logger?: Pick<Console, "error" | "warn">;
+}
+
+export function createGmailApp({ verifyIdToken, store, logger = console }: GmailAppOptions) {
   const app = express();
   app.use((_req, res, next) => { res.set("Cache-Control", "no-store"); next(); });
-  const account = async (req, res, next) => {
+  const account: RequestHandler = async (req, res, next) => {
     try {
       const token = bearer(req);
       if (!token) return res.sendStatus(401);
@@ -42,9 +50,9 @@ function createGmailApp({ verifyIdToken, store, logger = console }) {
       next();
     } catch { res.sendStatus(401); }
   };
-  app.get("/integrations/gmail/link", account, async (req, res) => res.json(await store.status(req.oshkaUid)));
-  app.post("/integrations/gmail/link-code", account, async (req, res) => res.json({ code: await store.createCode(req.oshkaUid), expiresIn: 600 }));
-  app.delete("/integrations/gmail/link", account, async (req, res) => { await store.disconnect(req.oshkaUid); res.sendStatus(204); });
+  app.get("/integrations/gmail/link", account, async (req, res) => res.json(await store.status(req.oshkaUid!)));
+  app.post("/integrations/gmail/link-code", account, async (req, res) => res.json({ code: await store.createCode(req.oshkaUid!), expiresIn: 600 }));
+  app.delete("/integrations/gmail/link", account, async (req, res) => { await store.disconnect(req.oshkaUid!); res.sendStatus(204); });
   app.post("/integrations/gmail/connect", express.json({ limit: "2kb" }), async (req, res) => {
     const code = typeof req.body?.code === "string" ? req.body.code.trim().toLowerCase() : "";
     if (!hex(code, 32)) throw new GmailError("invalid_code");
@@ -56,20 +64,19 @@ function createGmailApp({ verifyIdToken, store, logger = console }) {
     req.gmailToken = token;
     next();
   }, express.json({ limit: "24kb" }), async (req, res) => {
-    res.json(await store.capture(req.gmailToken, normalizeMail(req.body)));
+    res.json(await store.capture(req.gmailToken!, normalizeMail(req.body)));
   });
-  app.use((error, _req, res, next) => {
+  const reply: ErrorRequestHandler = (error, _req, res, next) => {
     if (res.headersSent) return next(error);
     const status = error instanceof GmailError ? error.status : error.type === "entity.too.large" ? 413 : error instanceof SyntaxError ? 400 : 503;
-    const diagnostic = { status, code: error instanceof GmailError ? error.code : status === 400 ? "invalid_request" : "gmail_unavailable" };
+    const diagnostic: { status: number; code: string; field?: string; providerCode?: number } = { status, code: error instanceof GmailError ? error.code : status === 400 ? "invalid_request" : "gmail_unavailable" };
     if (error instanceof GmailError && error.field) diagnostic.field = error.field;
     if (Number.isInteger(error.code)) diagnostic.providerCode = error.code;
     if (status >= 500) logger.error("Gmail request failed", diagnostic);
     else logger.warn("Gmail request rejected", diagnostic);
     // No mail text, link codes, request bodies or credentials in logs/errors.
     res.status(status).json({ error: error instanceof GmailError ? error.code : status === 400 ? "invalid_request" : "gmail_unavailable" });
-  });
+  };
+  app.use(reply);
   return app;
 }
-
-module.exports = { createGmailApp, normalizeMail };

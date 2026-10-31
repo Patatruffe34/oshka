@@ -1,19 +1,46 @@
-const crypto = require("node:crypto");
-const { makeCard, captureInboxCard } = require("../mcp/build/oshka.cjs");
+import { createHash, randomBytes } from "node:crypto";
+import type { DocumentData, Firestore } from "firebase-admin/firestore";
+import { makeCard } from "../../src/lib/board-utils";
+import { captureInboxCard } from "../../src/lib/inbox";
+import type { Card, RootBoard } from "../../src/lib/types";
 
-const hash = (value) => crypto.createHash("sha256").update(value).digest("hex");
-const linkId = (team, user) => hash(`${team}:${user}`);
-const live = (data) => data?.expiresAt?.toDate() > new Date();
+const hash = (value: string) => createHash("sha256").update(value).digest("hex");
+const linkId = (team: string, user: string) => hash(`${team}:${user}`);
+const live = (data: DocumentData | undefined) => data?.expiresAt?.toDate() > new Date();
 
-class CaptureError extends Error {
-  constructor(message, field = "title") { super(message); this.field = field; }
+/** A message on the capture modal, attached to the field it is about */
+export class CaptureError extends Error {
+  field: string;
+
+  constructor(message: string, field = "title") { super(message); this.field = field; }
 }
 
-function createStore(db) {
-  const ref = (collection, id) => db.collection(collection).doc(id);
+/** The message a shortcut was used on, as Slack sends it */
+export interface SlackMessage {
+  text?: string;
+  ts: string;
+  user?: string;
+}
+
+/** A capture waiting for its modal to be submitted */
+export interface PreparedCapture {
+  id: string;
+  linked: boolean;
+}
+
+export interface SlackStore {
+  createCode(uid: string): Promise<string>;
+  status(uid: string): Promise<{ connected: boolean }>;
+  disconnect(uid: string): Promise<void>;
+  prepare(request: { team: string; user: string; message: SlackMessage; channel: string; permalink: string }): Promise<PreparedCapture>;
+  capture(request: { id: string; team: string; user: string; code?: string; title: string }): Promise<{ duplicate: boolean }>;
+}
+
+export function createStore(db: Firestore): SlackStore {
+  const ref = (collection: string, id: string) => db.collection(collection).doc(id);
   return {
     async createCode(uid) {
-      const code = crypto.randomBytes(16).toString("hex");
+      const code = randomBytes(16).toString("hex");
       await ref("slack_link_codes", hash(code)).set({ uid, expiresAt: new Date(Date.now() + 600_000) });
       return code;
     },
@@ -32,7 +59,7 @@ function createStore(db) {
       await batch.commit();
     },
     async prepare({ team, user, message, channel, permalink }) {
-      const id = crypto.randomBytes(24).toString("hex");
+      const id = randomBytes(24).toString("hex");
       const [linked] = await Promise.all([
         ref("slack_links", linkId(team, user)).get(),
         ref("slack_captures", id).set({
@@ -50,16 +77,16 @@ function createStore(db) {
       return db.runTransaction(async (tx) => {
         const [captureSnap, account] = await Promise.all([tx.get(captureRef), tx.get(accountRef)]);
         const capture = captureSnap.data();
-        if (!captureSnap.exists || !live(capture) || capture.team !== team || capture.user !== user) {
+        if (!captureSnap.exists || !capture || !live(capture) || capture.team !== team || capture.user !== user) {
           throw new CaptureError("Ce partage a expiré. Recommence depuis le message Slack.");
         }
         if (capture.completedUid) return { duplicate: true };
-        let uid = account.exists ? account.data().uid : null;
+        let uid: string | null = account.exists ? account.data()!.uid : null;
         const codeRef = code ? ref("slack_link_codes", hash(code.trim().toLowerCase())) : null;
         if (codeRef) {
           const grant = await tx.get(codeRef);
           if (!grant.exists || !live(grant.data())) throw new CaptureError("Code invalide ou expiré. Génère un nouveau code dans Oshka.", "link_code");
-          uid = grant.data().uid;
+          uid = grant.data()!.uid as string;
         }
         if (!uid) throw new CaptureError("Colle le code créé dans les paramètres d’Oshka.", "link_code");
         const boardRef = ref("boards", uid);
@@ -74,10 +101,10 @@ function createStore(db) {
           tx.update(captureRef, { completedUid: uid });
           return { duplicate: true };
         }
-        const data = boardSnap.data();
-        const root = data.boardJson ? JSON.parse(data.boardJson) : data.board;
+        const data = boardSnap.data()!;
+        const root: RootBoard | undefined = data.boardJson ? JSON.parse(data.boardJson) : data.board;
         if (!root || !Array.isArray(root.columns)) throw new CaptureError("Le board ne peut pas être chargé. Réessaie depuis Oshka.");
-        const card = {
+        const card: Card = {
           ...makeCard(title), capturedAt: new Date().toISOString(),
           description: `${capture.text}\n\n[Ouvrir le message Slack](${capture.permalink})`,
           source: { type: "slack", team, channel: capture.channel, timestamp: capture.timestamp, author: capture.author, url: capture.permalink },
@@ -90,5 +117,3 @@ function createStore(db) {
     },
   };
 }
-
-module.exports = { createStore, CaptureError };

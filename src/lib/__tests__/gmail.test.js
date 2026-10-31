@@ -1,8 +1,6 @@
-import { createRequire } from "node:module";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
-const require = createRequire(import.meta.url);
-const { createGmailStore } = require("../../../functions/gmail/store.js");
-const { createGmailApp, normalizeMail } = require("../../../functions/gmail/app.js");
+import { createGmailStore } from "../../../functions/gmail/store";
+import { createGmailApp, normalizeMail } from "../../../functions/gmail/app";
 const mail = { mailbox: "Me@Example.com", messageId: "1234567890abcdef", threadId: "1234567890abcdee", title: "Relire le contrat", sender: "Alice <alice@example.com>", sentAt: "2026-10-27T12:00:00.000Z", excerpt: "Bonjour, voici le document à relire.", url: "https://mail.google.com/mail/u/0/?ui=2#inbox/1234567890abcdee" };
 
 function memoryFirestore() {

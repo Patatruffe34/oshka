@@ -1,32 +1,28 @@
-const { z } = require("zod");
-const {
-  uid: newId,
+import { z } from "zod";
+import type { McpServer, ToolCallback } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { ShapeOutput, ZodRawShapeCompat } from "@modelcontextprotocol/sdk/server/zod-compat.js";
+import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
+import {
+  uid as newId,
   makeCard,
   makeCol,
   makeChecklist,
   makeChecklistItem,
-  inboxCards,
-  captureInboxCard,
-  fileInboxCard,
-  moveCardIntoInbox,
   moveCardAcrossBoards,
   getBoardAtPath,
   isDoneColumn,
   markCardDone,
   fileUnderDone,
-  isRepeating,
-  nextOccurrence,
-  rollCardOver,
-  normalizeRepeat,
-  planWeek,
-  searchBoard,
   visibleCards,
   cardChecklists,
-  REPEAT_UNITS,
-  LANES,
-} = require("./build/oshka.cjs");
-const { ToolError, loadBoard, updateBoard } = require("./store");
-const {
+} from "../../src/lib/board-utils";
+import { inboxCards, captureInboxCard, fileInboxCard, moveCardIntoInbox } from "../../src/lib/inbox";
+import { isRepeating, nextOccurrence, rollCardOver, normalizeRepeat, REPEAT_UNITS } from "../../src/lib/repeat";
+import { planWeek, LANES, type Lane } from "../../src/lib/planner";
+import { searchBoard } from "../../src/lib/search";
+import type { Column, Id, RootBoard } from "../../src/lib/types";
+import { ToolError, loadBoard, updateBoard } from "./store";
+import {
   ROOT,
   INBOX,
   fold,
@@ -38,9 +34,10 @@ const {
   resolveLabels,
   cardLine,
   outline,
-} = require("./tree");
+  type CardLocation,
+} from "./tree";
 
-const INSTRUCTIONS = `Oshka is a kanban where every card holds a whole board of its own, to any depth: boards have columns, columns have cards, and each card opens onto another board.
+export const INSTRUCTIONS = `Oshka is a kanban where every card holds a whole board of its own, to any depth: boards have columns, columns have cards, and each card opens onto another board.
 
 - Every tool addresses cards by id. Ids are unique across the tree; get_outline, search_cards, get_agenda and list_inbox hand them out. "root" names the top board.
 - A column whose emoji contains ✅ marks a board meant to progress. Finishing a card files it there, and moving a card into it finishes it.
@@ -59,10 +56,10 @@ const cardId = () => z.string().describe("Card id");
 const boardRef = () =>
   z.string().optional().describe(`Card id whose board to use, or "${ROOT}" (default)`);
 
-const READ = { readOnlyHint: true, openWorldHint: false };
-const WRITE = { readOnlyHint: false, destructiveHint: false, openWorldHint: false };
+const READ: ToolAnnotations = { readOnlyHint: true, openWorldHint: false };
+const WRITE: ToolAnnotations = { readOnlyHint: false, destructiveHint: false, openWorldHint: false };
 
-const capped = (s) =>
+const capped = (s: string) =>
   s.length <= MAX_CHARS ? s : `${s.slice(0, MAX_CHARS)}\n… (cut: ask for a smaller depth or a deeper board)`;
 
 const today = () => {
@@ -71,21 +68,21 @@ const today = () => {
 };
 
 /** Where a card sits, said in titles */
-const placeOf = (at) => (at.inInbox ? "Inbox" : `${trailText(at.trail)} › ${columnName(at.col)}`);
+const placeOf = (at: CardLocation) => (at.inInbox ? "Inbox" : `${trailText(at.trail)} › ${columnName(at.col)}`);
 
 /**
  * Index in the full card list for a position among visible cards, counted
  * as if the moving card had already left — moving within its own column
  * would otherwise land one slot off.
  */
-const indexFor = (col, position, movingId) => {
+const indexFor = (col: Column, position: number | undefined, movingId?: Id) => {
   if (!Number.isInteger(position)) return undefined;
   const rest = col.cards.filter((c) => c.id !== movingId);
-  const anchor = visibleCards({ cards: rest })[Math.max(0, position)];
+  const anchor = visibleCards({ ...col, cards: rest })[Math.max(0, position!)];
   return anchor ? rest.indexOf(anchor) : rest.length;
 };
 
-function cardDetail(root, at) {
+function cardDetail(root: RootBoard, at: CardLocation) {
   const { card } = at;
   const lines = [`# ${card.title} [${card.id}]`, `Where: ${placeOf(at)}`, `Summary: ${cardLine(root, card)}`];
   if (card.doneAt) lines.push(`Done at: ${card.doneAt}`);
@@ -108,16 +105,23 @@ function cardDetail(root, at) {
   return lines.join("\n");
 }
 
-function registerTools(server, uid) {
-  const tool = (name, config, run) =>
-    server.registerTool(name, config, async (args) => {
+interface ToolConfig<Shape extends ZodRawShapeCompat> {
+  title: string;
+  description: string;
+  inputSchema: Shape;
+  annotations: ToolAnnotations;
+}
+
+export function registerTools(server: McpServer, uid: string): void {
+  const tool = <Shape extends ZodRawShapeCompat>(name: string, config: ToolConfig<Shape>, run: (args: ShapeOutput<Shape>) => Promise<string>) =>
+    server.registerTool(name, config, (async (args: ShapeOutput<Shape>) => {
       try {
         return { content: [{ type: "text", text: capped(await run(args)) }] };
       } catch (err) {
         if (err instanceof ToolError) return { content: [{ type: "text", text: err.message }], isError: true };
         throw err;
       }
-    });
+    }) as unknown as ToolCallback<Shape>);
 
   // ── Reading ──
 
@@ -212,10 +216,10 @@ function registerTools(server, uid) {
       },
       annotations: { title: "Agenda", ...READ },
     },
-    async ({ lanes = LANES }) => {
+    async ({ lanes = [...LANES] }) => {
       const { root, settings } = await loadBoard(uid);
       const plan = planWeek(root, { weekMode: settings.weekMode });
-      const names = {
+      const names: Record<Lane, string> = {
         today: "Today (and overdue)",
         tomorrow: "Tomorrow",
         week: "This week",
@@ -267,7 +271,7 @@ function registerTools(server, uid) {
         const stamp = new Date().toISOString();
         const cards = titles.map((t) => ({ ...makeCard(t.trim()), capturedAt: stamp }));
         // Each capture goes on top, so the last one is captured first
-        for (const card of [...cards].reverse()) state.root = captureInboxCard(state.root, card);
+        for (const card of [...cards].reverse()) state.root = captureInboxCard(state.root, card)!;
         return `Captured ${cards.length}:\n${cards.map((c) => `- ${c.title} [${c.id}]`).join("\n")}`;
       })
   );
@@ -380,7 +384,7 @@ function registerTools(server, uid) {
         let said = `${done ? "Finished" : "Reopened"} "${card.title}"`;
         if (done && !at.inInbox && settings.moveOnDone) {
           const filed = fileUnderDone(at.board, at.col.id, card.id);
-          if (filed) said += ` and filed it under ${columnName(at.board.columns.find((c) => c.id === filed))}`;
+          if (filed) said += ` and filed it under ${columnName(at.board.columns.find((c) => c.id === filed)!)}`;
         }
         if (done && settings.autoArchiveDone) {
           card.archived = true;
@@ -448,7 +452,7 @@ function registerTools(server, uid) {
         let said = `Moved "${at.card.title}" to ${where}`;
         if (settings.doneOnDrop && isDoneColumn(col) && col.id !== at.col.id) {
           const destBoard = getBoardAtPath(next, dest.path);
-          const landed = destBoard.columns.find((c) => c.id === col.id).cards.find((c) => c.id === card_id);
+          const landed = destBoard.columns.find((c) => c.id === col.id)!.cards.find((c) => c.id === card_id)!;
           if (isRepeating(landed)) {
             const nextDue = nextOccurrence(landed.dueAt, landed.repeat);
             rollCardOver(landed, nextDue);
@@ -524,4 +528,3 @@ function registerTools(server, uid) {
   );
 }
 
-module.exports = { registerTools, INSTRUCTIONS };

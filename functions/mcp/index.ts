@@ -1,19 +1,20 @@
-/*
- * Due dates are calendar days, and "today" is the user's, not the server's.
- * Set before anything reads the clock; Node honours TZ changes at runtime.
- */
-process.env.TZ = process.env.OSHKA_TIMEZONE || "Europe/Paris";
-
-const express = require("express");
-const { McpServer } = require("@modelcontextprotocol/sdk/server/mcp.js");
-const { StreamableHTTPServerTransport } = require("@modelcontextprotocol/sdk/server/streamableHttp.js");
-const {
+import express from "express";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import {
   mcpAuthRouter,
   getOAuthProtectedResourceMetadataUrl,
-} = require("@modelcontextprotocol/sdk/server/auth/router.js");
-const { requireBearerAuth } = require("@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js");
-const { createProvider, approve } = require("./oauth");
-const { registerTools, INSTRUCTIONS } = require("./tools");
+} from "@modelcontextprotocol/sdk/server/auth/router.js";
+import { requireBearerAuth } from "@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js";
+import { createProvider, approve } from "./oauth";
+import { registerTools, INSTRUCTIONS } from "./tools";
+
+/*
+ * Due dates are calendar days, and "today" is the user's, not the server's.
+ * Set as the module loads, before any request reads the clock; imports run
+ * first, but none of them reads it. Node honours TZ changes at runtime.
+ */
+process.env.TZ = process.env.OSHKA_TIMEZONE || "Europe/Paris";
 
 /*
  * Everything is served from the app's origin through Hosting rewrites
@@ -40,7 +41,7 @@ const provider = createProvider({
  */
 const limits = { rateLimit: { validate: false } };
 
-const app = express();
+export const app = express();
 app.set("trust proxy", true);
 app.use((req, res, next) => {
   // A CDN sits in front: nothing here may ever be cached
@@ -75,7 +76,7 @@ const bearer = requireBearerAuth({ verifier: provider, resourceMetadataUrl });
  */
 app.post("/mcp", bearer, async (req, res) => {
   const server = new McpServer({ name: "oshka", version: "1.0.0" }, { instructions: INSTRUCTIONS });
-  registerTools(server, req.auth.extra.uid);
+  registerTools(server, req.auth!.extra!.uid as string);
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
   res.on("close", () => {
     transport.close();
@@ -97,4 +98,3 @@ app.all("/mcp", (req, res) => {
   res.set("Allow", "POST").status(405).json({ jsonrpc: "2.0", error: { code: -32000, message: "Method not allowed" }, id: null });
 });
 
-module.exports = { app };

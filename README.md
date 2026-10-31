@@ -238,14 +238,15 @@ npm run dev
 | `npm test` | builds the shared Functions bundle, then runs the test suite |
 | `npm run test:watch` | tests in watch mode |
 | `npm run lint` | ESLint |
-| `npm run typecheck` | TypeScript, without emitting anything |
+| `npm run typecheck` | TypeScript for the app and the Functions, without emitting anything |
 | `npm run build` | production build |
 | `firebase deploy --only hosting` | deploy the app |
 | `firebase deploy --only functions:mcp,hosting,firestore` | deploy the MCP server (and the rewrites that serve it) |
 | `npm run seed:local` | test account and board in the emulators |
 
 The two lockfiles are committed: use `npm ci` in both directories. Tests build
-`functions/mcp/build/oshka.cjs` automatically; do not commit generated bundles.
+`functions/build/index.cjs`, the Functions as deployed, automatically; do not
+commit generated bundles.
 The Firebase client currently pins an older gRPC line, so `package.json` overrides
 `@grpc/grpc-js` within `@firebase/firestore` to a patched compatible 1.x release.
 ESLint uses a patched `minimatch` 11 override; the Functions tree overrides

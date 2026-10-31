@@ -1,10 +1,8 @@
-import { createRequire } from "node:module";
 import { createHmac } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createSlackApp } from "../../../functions/slack/app";
+import { createStore } from "../../../functions/slack/store";
 
-const require = createRequire(import.meta.url);
-const { createSlackApp } = require("../../../functions/slack/app.js");
-const { createStore } = require("../../../functions/slack/store.js");
 const secret = "test-signing-secret";
 const owner = { team: "T1", user: "U1" };
 const message = { text: "Relire le document\nhttps://example.com", ts: "1234.567890", user: "U2" };

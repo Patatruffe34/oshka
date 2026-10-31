@@ -13,9 +13,19 @@
 const FIREBASE_SDK = "https://www.gstatic.com/firebasejs/12.19.0";
 
 /** JSON that can sit inside a <script> without closing it */
-const embed = (value) => JSON.stringify(value).replace(/</g, "\\u003c");
+const embed = (value: unknown): string => JSON.stringify(value).replace(/</g, "\\u003c");
 
-function consentPage({ request, client, redirectHost, firebase }) {
+export interface ConsentPageOptions {
+  /** The parked authorization request, posted back with the answer */
+  request: string;
+  /** What to call the app asking: its registered name, or its redirect host */
+  client: string;
+  redirectHost: string;
+  /** The emulator's web config, or null to read the one Hosting publishes */
+  firebase: Record<string, string | undefined> | null;
+}
+
+export function consentPage({ request, client, redirectHost, firebase }: ConsentPageOptions): string {
   return `<!doctype html>
 <html lang="fr">
 <head>
@@ -210,4 +220,3 @@ $("switch").addEventListener("click", () => signOut(auth));
 </html>`;
 }
 
-module.exports = { consentPage };

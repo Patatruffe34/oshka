@@ -6,7 +6,7 @@ import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist', 'functions/mcp/build']),
+  globalIgnores(['dist', 'functions/build']),
   {
     files: ['**/*.{js,jsx,ts,tsx}'],
     extends: [
@@ -38,13 +38,11 @@ export default defineConfig([
       '@typescript-eslint/no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]' }],
     },
   },
-  // Cloud Functions: CommonJS on Node, except the ESM entry bundled from src/lib
+  // Cloud Functions: Node, not the browser
   {
-    files: ['functions/**/*.js'],
-    ignores: ['functions/mcp/oshka.entry.js'],
+    files: ['functions/**/*.ts'],
     languageOptions: {
       globals: globals.node,
-      sourceType: 'commonjs',
     },
   },
 ])
