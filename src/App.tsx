@@ -1,19 +1,19 @@
 import { useState, useCallback, useRef, useMemo, useEffect } from "react";
-import { DragDropContext } from "@hello-pangea/dnd";
+import { DragDropContext, type DropResult } from "@hello-pangea/dnd";
 import { usePlannerDrag } from "./hooks/usePlannerDrag";
 import { useBoardDrag } from "./hooks/useBoardDrag";
-import { INBOX_DROP_ID } from "./lib/inbox";
+import { INBOX_DROP_ID, type InboxPlan } from "./lib/inbox";
 import { useAuth } from "./hooks/useAuth";
 import { useBoard } from "./hooks/useBoard";
 import { useTheme } from "./hooks/useTheme";
 import { useOnline } from "./hooks/useOnline";
 import { useMediaQuery } from "./hooks/useMediaQuery";
 import { useMobileKeyboard } from "./hooks/useMobileKeyboard";
-import { useTabs } from "./hooks/useTabs";
+import { useTabs, type Tab } from "./hooks/useTabs";
 import { useToday } from "./hooks/useToday";
 import { useI18n } from "./lib/i18n";
 import { resolvePathFromIds, getBoardAtPath, subBoardStats } from "./lib/board-utils";
-import { dateForLane } from "./lib/planner";
+import { dateForLane, type PlannedItem } from "./lib/planner";
 import { archiveSummary, completedCardCount } from "./lib/archives";
 import { buzz } from "./lib/haptics";
 import Auth from "./components/Auth";
@@ -40,12 +40,41 @@ import InboxPanel from "./components/InboxPanel";
 import InboxCardDetail from "./components/InboxCardDetail";
 import InboxPlanDestination from "./components/InboxPlanDestination";
 import SharedCapture from "./components/SharedCapture";
-import { clearPendingShare } from "./lib/share-target";
+import { clearPendingShare, type PendingShare } from "./lib/share-target";
+import type { Point } from "./components/Card";
+import type { ChecklistActions } from "./components/CardDetail";
+import type { TabLabel } from "./components/TabStrip";
+import type { SearchResult } from "./lib/search";
+import type { Card, Column, Id, PathSegment } from "./lib/types";
 import "./styles/app.css";
 
-export default function App({ initialShare = null }) {
+/** The card the detail is open on, and the board holding it when not the one on screen */
+interface DetailModal {
+  card: Card;
+  colId: Id;
+  at?: PathSegment[];
+  /** Opens straight onto the move picker */
+  move?: boolean;
+}
+
+/** A finished card that still holds unfinished work, waiting for an answer */
+interface Finishing {
+  cardId: Id;
+  at: PathSegment[];
+  subject: string;
+  left: number;
+  depth: number;
+}
+
+interface WorkspaceProps {
+  authState: ReturnType<typeof useAuth>;
+  pendingShare: PendingShare | null;
+  setPendingShare: (share: PendingShare | null) => void;
+}
+
+export default function App({ initialShare = null }: { initialShare?: PendingShare | null }) {
   const authState = useAuth();
-  const [pendingShare, setPendingShare] = useState(initialShare);
+  const [pendingShare, setPendingShare] = useState<PendingShare | null>(initialShare);
   // All account-owned React state (including dialogs and undo) is discarded
   // synchronously when Firebase changes users. The pending share is explicit
   // user input and intentionally survives sign-in.
@@ -53,7 +82,7 @@ export default function App({ initialShare = null }) {
     pendingShare={pendingShare} setPendingShare={setPendingShare} />;
 }
 
-function Workspace({ authState, pendingShare, setPendingShare }) {
+function Workspace({ authState, pendingShare, setPendingShare }: WorkspaceProps) {
   useMobileKeyboard();
   const { t } = useI18n();
   const { user, loading, sending, error, sendMagicLink, signInWithPassword,
@@ -140,12 +169,12 @@ function Workspace({ authState, pendingShare, setPendingShare }) {
     deleteInbox,
   } = useBoard(user?.uid);
 
-  const archives = useMemo(() => archiveSummary(root), [root]);
-  const completedCount = useMemo(() => completedCardCount(root), [root]);
+  const archives = useMemo(() => archiveSummary(root ?? undefined), [root]);
+  const completedCount = useMemo(() => completedCardCount(root ?? undefined), [root]);
 
   /* Ids in, live path out — a tab never carries a title of its own */
   const resolveTab = useCallback(
-    (segments) => resolvePathFromIds(root, segments) || [],
+    (segments: PathSegment[]) => resolvePathFromIds(root, segments) || [],
     [root]
   );
   const { tabs, activeId, select, open, close, move } = useTabs({
@@ -159,7 +188,7 @@ function Workspace({ authState, pendingShare, setPendingShare }) {
 
   /* Read off the tree at draw time, so a rename shows and a deletion shows */
   const labelOf = useCallback(
-    (tab) => {
+    (tab: Tab): TabLabel => {
       if (tab.view === "week") {
         return { emoji: "", title: t("week.title"), missing: false, view: true };
       }
@@ -202,11 +231,11 @@ function Workspace({ authState, pendingShare, setPendingShare }) {
   /* Go to a card's board, in a tab of its own so the week stays open, and let
      it glow until something is touched — otherwise you arrive on a board and
      have to hunt for what you just clicked. */
-  const [spotlight, setSpotlight] = useState(null);
+  const [spotlight, setSpotlight] = useState<Id | null>(null);
   /* Go to a board, in the tab already showing it when there is one: piling up
      duplicates of the same place is how a strip becomes unreadable. */
   const openPath = useCallback(
-    (segments, { background } = {}) => {
+    (segments: PathSegment[], { background }: { background?: boolean } = {}) => {
       const key = segments.map((s) => s.cardId).join("/");
       const already = tabs.find(
         (t) => !t.view && t.segments.map((s) => s.cardId).join("/") === key
@@ -221,7 +250,7 @@ function Workspace({ authState, pendingShare, setPendingShare }) {
   );
 
   const locate = useCallback(
-    (item, opts) => {
+    (item: PlannedItem, opts: { background: boolean }) => {
       // The board that holds the card — you are looking for it, not going in
       openPath(item.path.map((p) => ({ colId: p.colId, cardId: p.cardId })), opts);
       setSpotlight(item.card.id);
@@ -258,7 +287,7 @@ function Workspace({ authState, pendingShare, setPendingShare }) {
 
   /* The shortcut handler is registered once; this is how it stays current
      without tearing it down on every tab change. */
-  const tabsRef = useRef(() => {});
+  const tabsRef = useRef<(index: number) => void>(() => {});
   useEffect(() => {
     tabsRef.current = (i) => {
       const tab = tabs[i];
@@ -266,25 +295,25 @@ function Workspace({ authState, pendingShare, setPendingShare }) {
     };
   }, [tabs, select, resolveTab]);
 
-  const [detailModal, setDetailModal] = useState(null);
-  const [burst, setBurst] = useState(null);
+  const [detailModal, setDetailModal] = useState<DetailModal | null>(null);
+  const [burst, setBurst] = useState<{ id: number; origin: Point } | null>(null);
   const burstId = useRef(0);
   const [profileOpen, setProfileOpen] = useState(false);
   const [favoritesOpen, setFavoritesOpen] = useState(false);
   const [trashOpen, setTrashOpen] = useState(false);
   const [inboxOpen, setInboxOpen] = useState(false);
-  const [inboxDetailId, setInboxDetailId] = useState(null);
-  const [inboxPlanDrop, setInboxPlanDrop] = useState(null);
+  const [inboxDetailId, setInboxDetailId] = useState<Id | null>(null);
+  const [inboxPlanDrop, setInboxPlanDrop] = useState<InboxPlan | null>(null);
   const [purgeOpen, setPurgeOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
-  const [movingColumn, setMovingColumn] = useState(null);
-  const [finishing, setFinishing] = useState(null);
+  const [movingColumn, setMovingColumn] = useState<Column | null>(null);
+  const [finishing, setFinishing] = useState<Finishing | null>(null);
   const [outlineOpen, setOutlineOpen] = useState(false);
   const [mapOpen, setMapOpen] = useState(false);
-  const [labelFilter, setLabelFilter] = useState([]);
+  const [labelFilter, setLabelFilter] = useState<Id[]>([]);
 
   /* `move` opens it on the move panel — the card menu's way to another board */
-  const handleOpenDetail = useCallback((card, colId, { move } = {}) => {
+  const handleOpenDetail = useCallback((card: Card, colId: Id, { move }: { move?: boolean } = {}) => {
     setDetailModal({ card, colId, move });
   }, []);
 
@@ -292,7 +321,7 @@ function Workspace({ authState, pendingShare, setPendingShare }) {
     const segment = path[path.length - 1];
     if (!segment) return;
     const at = path.slice(0, -1).map(({ colId, cardId }) => ({ colId, cardId }));
-    const card = getBoardAtPath(root, at)?.columns
+    const card = getBoardAtPath(root!, at)?.columns
       .find((col) => col.id === segment.colId)
       ?.cards.find((card) => card.id === segment.cardId);
     if (card) setDetailModal({ card, colId: segment.colId, at });
@@ -312,8 +341,8 @@ function Workspace({ authState, pendingShare, setPendingShare }) {
    * about. The card itself is already done either way.
    */
   const offerBranch = useCallback(
-    (cardId, segments) => {
-      const board = getBoardAtPath(root, segments);
+    (cardId: Id, segments: PathSegment[]) => {
+      const board = getBoardAtPath(root!, segments);
       const card = board?.columns.flatMap((c) => c.cards).find((c) => c.id === cardId);
       if (!card?.board) return;
       const stats = subBoardStats(card.board);
@@ -331,7 +360,7 @@ function Workspace({ authState, pendingShare, setPendingShare }) {
   );
 
   const handleToggleCardDone = useCallback(
-    (colId, cardId, origin, at) => {
+    (colId: Id, cardId: Id, origin?: Point, at?: PathSegment[]) => {
       const outcome = toggleCardDone(colId, cardId, at);
       if (!outcome) return;
       buzz("tick");
@@ -351,7 +380,7 @@ function Workspace({ authState, pendingShare, setPendingShare }) {
 
   /** A column was dropped on the "move elsewhere" zone: ask where it should go */
   const handleColumnToZone = useCallback(
-    (columnId) => {
+    (columnId: Id) => {
       const col = currentBoard?.columns.find((c) => c.id === columnId);
       if (col) setMovingColumn(col);
     },
@@ -363,7 +392,7 @@ function Workspace({ authState, pendingShare, setPendingShare }) {
    * detail. Navigation is animated, so the modal waits for the move to land.
    */
   const handleGoToResult = useCallback(
-    (result) => {
+    (result: SearchResult) => {
       setSearchOpen(false);
       navigate(result.path);
       setTimeout(
@@ -377,29 +406,31 @@ function Workspace({ authState, pendingShare, setPendingShare }) {
   // Grouped so CardDetail takes one stable prop instead of seven
   /* The same seven, aimed at the card's own board when it is not the one on
      screen. Wrapped rather than duplicated: one set of rules, two targets. */
-  const detailChecklistActions = useMemo(() => {
+  // A card on a board always has its column; only Inbox cards have none
+  const detailChecklistActions = useMemo((): ChecklistActions => {
     const at = detailModal?.at;
     return {
-      add: (c, i, t) => addChecklist(c, i, t, at),
-      rename: (c, i, l, t) => renameChecklist(c, i, l, t, at),
-      remove: (c, i, l) => deleteChecklist(c, i, l, at),
-      addItem: (c, i, l, t) => addChecklistItem(c, i, l, t, at),
-      toggleItem: (c, i, l, it) => toggleChecklistItem(c, i, l, it, at),
-      updateItem: (c, i, l, it, t) => updateChecklistItem(c, i, l, it, t, at),
-      removeItem: (c, i, l, it) => deleteChecklistItem(c, i, l, it, at),
+      add: (c, i, t) => addChecklist(c!, i, t, at),
+      rename: (c, i, l, t) => renameChecklist(c!, i, l, t, at),
+      remove: (c, i, l) => deleteChecklist(c!, i, l, at),
+      addItem: (c, i, l, t) => addChecklistItem(c!, i, l, t, at),
+      toggleItem: (c, i, l, it) => toggleChecklistItem(c!, i, l, it, at),
+      updateItem: (c, i, l, it, t) => updateChecklistItem(c!, i, l, it, t, at),
+      removeItem: (c, i, l, it) => deleteChecklistItem(c!, i, l, it, at),
     };
   }, [detailModal, addChecklist, renameChecklist, deleteChecklist,
       addChecklistItem, toggleChecklistItem, updateChecklistItem, deleteChecklistItem]);
 
 
   const handleUnarchiveCard = useCallback(
-    (colId, cardId) => setCardArchived(colId, cardId, false),
+    (colId: Id, cardId: Id) => setCardArchived(colId, cardId, false),
     [setCardArchived]
   );
 
   useEffect(() => {
-    const onKey = (e) => {
-      const typing = /^(INPUT|TEXTAREA)$/.test(e.target.tagName) || e.target.isContentEditable;
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      const typing = /^(INPUT|TEXTAREA)$/.test(target.tagName) || target.isContentEditable;
       const mod = e.metaKey || e.ctrlKey;
 
       if ((e.key === "k" && mod) || (e.key === "/" && !typing)) {
@@ -427,7 +458,7 @@ function Workspace({ authState, pendingShare, setPendingShare }) {
   }, [undo, redo]);
 
   const handleDragEnd = useCallback(
-    (result) => {
+    (result: DropResult) => {
       const { source, destination, type } = result;
       if (!destination || result.reason === "CANCEL") return;
 
@@ -503,7 +534,7 @@ function Workspace({ authState, pendingShare, setPendingShare }) {
    * like it worked.
    */
   const detailBoard = detailModal?.at
-    ? getBoardAtPath(root, detailModal.at)
+    ? getBoardAtPath(root!, detailModal.at)
     : currentBoard;
   const activeCardPath = detailModal?.at ? resolveTab(detailModal.at) : path;
   /* A favourite is a position you jump to, so favouriting a card means
@@ -607,7 +638,7 @@ function Workspace({ authState, pendingShare, setPendingShare }) {
           onMove={move}
         />
       )}
-      {!compact && labels.length > 0 && currentBoard?.columns.length > 0 && (
+      {!compact && labels.length > 0 && (currentBoard?.columns.length ?? 0) > 0 && (
         <BoardFilter
           labels={labels}
           selected={labelFilter}
@@ -702,10 +733,10 @@ function Workspace({ authState, pendingShare, setPendingShare }) {
         spotlight={spotlight}
       />
       )}
-      {inboxDetailCard && <InboxCardDetail key={inboxDetailCard.id} card={inboxDetailCard} root={root} labels={labels}
+      {inboxDetailCard && root && <InboxCardDetail key={inboxDetailCard.id} card={inboxDetailCard} root={root} labels={labels}
         onUpdate={updateInbox} onFile={fileInbox} onClose={() => setInboxDetailId(null)}
         onAddLabel={addLabel} onUpdateLabel={updateLabel} onDeleteLabel={deleteLabel} />}
-      {activeCard && (
+      {activeCard && detailModal && root && (
         <CardDetail
           card={activeCard}
           colId={detailModal.colId}
@@ -713,24 +744,24 @@ function Workspace({ authState, pendingShare, setPendingShare }) {
           /* `at` is set when the card belongs to a board other than the one
              on screen. Every mutation then has to aim at
              its own board, or it would edit whatever is behind the modal. */
-          onUpdate={(c, i, f) => updateCard(c, i, f, detailModal.at)}
+          onUpdate={(c, i, f) => updateCard(c!, i, f, detailModal.at)}
           onEnter={(card, colId) => {
-            if (!detailModal.at) return enterCard(card, colId);
+            if (!detailModal.at) return enterCard(card, colId!);
             handleCloseDetail();
             // Into the card's own board, one step past the one holding it —
             // locating stops outside, this goes in.
-            const into = [...detailModal.at, { colId, cardId: card.id }];
+            const into = [...detailModal.at, { colId: colId!, cardId: card.id }];
             if (!showingWeek && into.length === path.length && into.every((s, i) => s.cardId === path[i].cardId)) return;
             openPath(into);
           }}
-          onToggleDone={(c, i, o) => handleToggleCardDone(c, i, o, detailModal.at)}
+          onToggleDone={(c, i, o) => handleToggleCardDone(c!, i, o, detailModal.at)}
           labels={labels}
-          onToggleLabel={(c, i, l) => toggleCardLabel(c, i, l, detailModal.at)}
+          onToggleLabel={(c, i, l) => toggleCardLabel(c!, i, l, detailModal.at)}
           onAddLabel={addLabel}
           onUpdateLabel={updateLabel}
           onDeleteLabel={deleteLabel}
-          onSetDue={(c, i, v) => setCardDue(c, i, v, detailModal.at)}
-          onSetRepeat={(c, i, v) => setCardRepeat(c, i, v, detailModal.at)}
+          onSetDue={(c, i, v) => setCardDue(c!, i, v, detailModal.at)}
+          onSetRepeat={(c, i, v) => setCardRepeat(c!, i, v, detailModal.at)}
           checklistActions={detailChecklistActions}
           root={root}
           path={detailModal.at ? resolveTab(detailModal.at) : path}
@@ -743,17 +774,17 @@ function Workspace({ authState, pendingShare, setPendingShare }) {
           }
           initialMove={detailModal.move}
           onMove={(c, i, dp, dc) => {
-            const moved = moveCardTo(c, i, dp, dc, detailModal.at);
+            const moved = moveCardTo(c!, i, dp, dc, detailModal.at);
             /* Another column of the same board: the card is still here, so the
                detail follows it instead of closing on a card it can no longer
                find where it was. */
-            const key = (segs) => segs.map((s) => s.cardId).join("/");
+            const key = (segs: PathSegment[]) => segs.map((s) => s.cardId).join("/");
             if (moved && key(dp) === key(detailModal.at ?? here())) {
               setDetailModal((m) => m && { ...m, colId: dc });
             }
             return moved;
           }}
-          onDuplicate={(c, i) => duplicateCardAt(c, i, detailModal.at)}
+          onDuplicate={(c, i) => duplicateCardAt(c!, i, detailModal.at)}
         />
       )}
       {profileOpen && (
@@ -772,7 +803,7 @@ function Workspace({ authState, pendingShare, setPendingShare }) {
           onClose={() => setFavoritesOpen(false)}
         />
       )}
-      {movingColumn && (
+      {movingColumn && root && (
         <MoveColumnModal
           root={root}
           column={movingColumn}
@@ -796,7 +827,7 @@ function Workspace({ authState, pendingShare, setPendingShare }) {
           onClose={() => setFinishing(null)}
         />
       )}
-      {searchOpen && (
+      {searchOpen && root && (
         <SearchPanel
           root={root}
           labels={labels}
@@ -804,7 +835,7 @@ function Workspace({ authState, pendingShare, setPendingShare }) {
           onClose={() => setSearchOpen(false)}
         />
       )}
-      {mapOpen && (
+      {mapOpen && root && (
         <MindMap
           root={root}
           labels={labels}
@@ -814,7 +845,7 @@ function Workspace({ authState, pendingShare, setPendingShare }) {
           onClose={() => setMapOpen(false)}
         />
       )}
-      {outlineOpen && (
+      {outlineOpen && root && (
         <OutlinePanel
           root={root}
           labels={labels}
@@ -846,7 +877,7 @@ function Workspace({ authState, pendingShare, setPendingShare }) {
           onClose={() => setTrashOpen(false)}
         />
       )}
-      {inboxPlanDrop && <InboxPlanDestination root={root} drop={inboxPlanDrop} onFile={fileInbox}
+      {inboxPlanDrop && root && <InboxPlanDestination root={root} drop={inboxPlanDrop} onFile={fileInbox}
         onClose={() => setInboxPlanDrop(null)} />}
       {purgeOpen && (
         <PurgeArchivesModal

@@ -18,7 +18,7 @@ const LAST_KEY = "oshka_week_destination";
  * would make the quick path the slow one.
  */
 interface PlannerAddProps {
-  root: RootBoard;
+  root: RootBoard | null;
   onAdd: (title: string, path: PathSegment[], colId: Id) => void;
 }
 
@@ -125,7 +125,7 @@ export default function PlannerAdd({ root, onAdd }: PlannerAddProps) {
       </button>
       {picking && (
         <MoveCardPanel
-          root={root}
+          root={root!}
           currentPath={chosen.path}
           currentColId={chosen.colId}
           onMove={(path, colId) => {

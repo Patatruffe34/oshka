@@ -110,7 +110,7 @@ under "Clean" in the mobile menu.
 
 Mobile shares arrive on `/share`: `title`, `text` and `url` in the query string
 from the Android PWA (`manifest.share_target`), or `#text=…` from the signed iOS
-shortcut. The fragment keeps iOS content out of HTTP requests. `main.jsx` reads
+shortcut. The fragment keeps iOS content out of HTTP requests. `main.tsx` reads
 them before the authentication URL rewrites, keeps a pending capture in
 `oshka_pending_share_v1` and cleans the URL. This local storage lets the share
 survive a round trip through the magic link. Without storage available, it

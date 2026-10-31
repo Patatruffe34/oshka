@@ -4,17 +4,43 @@ import {
   groupByBoard,
   shortTrail,
   LANES,
+  type BoardGroup,
+  type Lane,
+  type PlannedItem,
 } from "../lib/planner";
 import { useI18n } from "../lib/i18n";
-import PlannerCard from "./PlannerCard";
+import PlannerCard, { type LocateCard, type PlannerCardActions, type PlannerTrail } from "./PlannerCard";
 import PlannerAdd from "./PlannerAdd";
 import DayCleared from "./DayCleared";
-import { usePlannerDrag } from "../hooks/usePlannerDrag";
+import { usePlannerDrag, type PlannerDragOptions } from "../hooks/usePlannerDrag";
 import { useColumnSwipe } from "../hooks/useColumnSwipe";
 import { useMediaQuery } from "../hooks/useMediaQuery";
+import type { Point } from "./Card";
+import type { Id, Label, PathSegment, RootBoard } from "../lib/types";
+
+type PlannerDrag = ReturnType<typeof usePlannerDrag>;
+
+interface PlannerContentProps {
+  /** Null until the board has loaded; the lanes are empty meanwhile */
+  root: RootBoard | null;
+  labels: Label[];
+  onOpen: (item: PlannedItem) => void;
+  onLocate: LocateCard;
+  onAdd: (lane: Lane, title: string, path: PathSegment[], colId: Id) => void;
+  onToggleDone: (item: PlannedItem, origin: Point) => void;
+  cardActions: PlannerCardActions;
+  drag: PlannerDrag;
+}
+
+/**
+ * The drag context comes from above when the Inbox shares it; otherwise the
+ * planner makes its own, from the same options the hook takes.
+ */
+type PlannerViewProps = Omit<PlannerContentProps, "drag"> &
+  Partial<Omit<PlannerDragOptions, "root">> & { drag?: PlannerDrag };
 
 /* The first four already had names elsewhere; only the last one is new */
-const LANE_KEY = {
+const LANE_KEY: Record<Lane, string> = {
   today: "due.today",
   tomorrow: "due.tomorrow",
   week: "due.soon",
@@ -45,17 +71,17 @@ const LABELS_KEY = "oshka_week_labels";
  */
 const RANKED_LANE = "today";
 
-export default function PlannerView(props) {
-  if (props.drag) return <PlannerContent {...props} />;
+export default function PlannerView(props: PlannerViewProps) {
+  if (props.drag) return <PlannerContent {...props} drag={props.drag} />;
   return <StandalonePlanner {...props} />;
 }
 
-function StandalonePlanner(props) {
-  const drag = usePlannerDrag(props);
+function StandalonePlanner(props: PlannerViewProps) {
+  const drag = usePlannerDrag(props as PlannerDragOptions);
   return <DragDropContext {...drag.contextProps}><PlannerContent {...props} drag={drag} /></DragDropContext>;
 }
 
-function PlannerContent({ root, labels, onOpen, onLocate, onAdd, onToggleDone, cardActions, drag }) {
+function PlannerContent({ root, labels, onOpen, onLocate, onAdd, onToggleDone, cardActions, drag }: PlannerContentProps) {
   const { t } = useI18n();
   /* A per-screen reading preference, not something the account should carry */
   const [fullLabels, setFullLabels] = useState(
@@ -75,12 +101,12 @@ function PlannerContent({ root, labels, onOpen, onLocate, onAdd, onToggleDone, c
    * root itself has nothing else to show, so there it is the answer.
    */
   const trail = useCallback(
-    (item) => {
+    (item: PlannedItem): PlannerTrail => {
       const steps = item.path.map((p) => p.cardTitle || t("board.untitled"));
       if (steps.length === 0) return { parent: t("header.root"), full: t("header.root") };
       return {
         ancestors: shortTrail(steps).slice(0, -1).join(" \u203a "),
-        parent: steps.at(-1),
+        parent: steps.at(-1)!,
         full: steps.join(" \u203a "),
       };
     },
@@ -90,7 +116,7 @@ function PlannerContent({ root, labels, onOpen, onLocate, onAdd, onToggleDone, c
   const { lanes, lanesRef, dragging } = drag;
   const total = LANES.reduce((n, lane) => n + lanes[lane].length, 0);
   const phone = useMediaQuery("(max-width: 640px)");
-  useColumnSwipe(lanesRef, phone && (total > 0 || root?.inbox?.length > 0), ":scope > .planner-lane");
+  useColumnSwipe(lanesRef, phone && (total > 0 || (root?.inbox?.length ?? 0) > 0), ":scope > .planner-lane");
 
   /* Today going from something to nothing, while you watch, is the moment
      worth marking. Worked out during render, from the last count seen. */
@@ -121,8 +147,9 @@ function PlannerContent({ root, labels, onOpen, onLocate, onAdd, onToggleDone, c
                here the ranking is the point. The board is still written, on
                each card instead of above a batch of them. */
             const flat = lane === RANKED_LANE;
+            // The flat lane draws no header, so only its key and items are read
             const groups = flat
-              ? [{ key: lane, items: lanes[lane] }]
+              ? [{ key: lane, items: lanes[lane] } as BoardGroup]
               : groupByBoard(lanes[lane], t("header.root"));
             /* Grouping reorders a lane sorted by date — A, B, A becomes A, A,
                B — and the library numbers draggables by what is on screen, not
@@ -182,7 +209,7 @@ function PlannerContent({ root, labels, onOpen, onLocate, onAdd, onToggleDone, c
                             {(dragProvided, dragSnap) => (
                           <PlannerCard
                             item={item}
-                            root={root}
+                            root={root!}
                             labels={labels}
                             fullLabels={fullLabels}
                             where={where}

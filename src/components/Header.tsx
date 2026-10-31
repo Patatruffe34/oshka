@@ -10,6 +10,46 @@ import {
 } from "./icons";
 import { LabelDots } from "./BoardFilter";
 import { toggleIn } from "../lib/toggle";
+import type { Id, Label, TitledSegment } from "../lib/types";
+
+interface HeaderProps {
+  /** Where you stand, from the root down */
+  path: TitledSegment[];
+  /** Set on a view tab, which has no place in the tree to show */
+  pageTitle?: string | null;
+  saving: boolean;
+  theme: string;
+  onToggleTheme: () => void;
+  /** -1 for the root, otherwise the index of the step in `path` */
+  onGoToBreadcrumb: (index: number) => void;
+  /** Left out where the board on screen is not a card's */
+  onOpenCurrentCardDetail?: () => void;
+  onLogout: () => void;
+  onOpenProfile: () => void;
+  onOpenFavorites: () => void;
+  onOpenTrash: () => void;
+  onCleanArchives: () => void;
+  archivedCount?: number;
+  completedCount?: number;
+  onArchiveDone: () => void;
+  onOpenSearch: () => void;
+  onOpenInbox: () => void;
+  inboxOpen?: boolean;
+  inboxCount?: number;
+  labels?: Label[];
+  labelFilter?: Id[];
+  onLabelFilterChange: (selected: Id[]) => void;
+  onOpenOutline: () => void;
+  onOpenWeek: () => void;
+  weekOpen: boolean;
+  onUndo: () => void;
+  canUndo: boolean;
+  onToggleFavorite: () => void;
+  isFavorited: boolean;
+  trashCount: number;
+  userEmail: string | null | undefined;
+  online: boolean;
+}
 
 export default function Header({
   path,
@@ -44,7 +84,7 @@ export default function Header({
   trashCount,
   userEmail,
   online,
-}) {
+}: HeaderProps) {
   const { t, locale, changeLocale } = useI18n();
   // Eight icons need 264px — more than the whole breadcrumb gets on a phone.
   // Below this width everything but search folds into a menu.
@@ -52,9 +92,9 @@ export default function Header({
   const [menuOpen, setMenuOpen] = useState(false);
   const [pathOpen, setPathOpen] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
-  const filterRef = useRef(null);
-  const burgerRef = useRef(null);
-  const pathRef = useRef(null);
+  const filterRef = useRef<HTMLButtonElement>(null);
+  const burgerRef = useRef<HTMLButtonElement>(null);
+  const pathRef = useRef<HTMLButtonElement>(null);
 
   const currentTitle = path.length ? path[path.length - 1].cardTitle : t("header.root");
 
@@ -138,7 +178,7 @@ export default function Header({
       <button
         className="icon-btn"
         onClick={() => { onOpenProfile(); setMenuOpen(false); }}
-        title={userEmail}
+        title={userEmail ?? undefined}
       >
         <IconGear />
         {compact && <span className="menu-label">{t("profile.title")}</span>}

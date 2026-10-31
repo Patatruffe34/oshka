@@ -19,6 +19,51 @@ import {
   IconCheck, IconMove, IconArchive, IconUnarchive, IconDuplicate,
   IconCalendar, IconTag, IconStar,
 } from "./icons";
+import type { LabelHandlers, Point } from "./Card";
+import type { Card, Id, IsoDay, Label, PathSegment, Repeat, RootBoard, TitledSegment } from "../lib/types";
+
+/**
+ * Checklist edits, addressed by the card's column and id like the rest.
+ * The Inbox has its own set: its cards sit in no column.
+ */
+export interface ChecklistActions {
+  add: (colId: Id | null, cardId: Id, title: string) => void;
+  rename: (colId: Id | null, cardId: Id, listId: Id, title: string) => void;
+  remove: (colId: Id | null, cardId: Id, listId: Id) => void;
+  addItem: (colId: Id | null, cardId: Id, listId: Id, text: string) => void;
+  toggleItem: (colId: Id | null, cardId: Id, listId: Id, itemId: Id) => void;
+  updateItem: (colId: Id | null, cardId: Id, listId: Id, itemId: Id, text: string) => void;
+  removeItem: (colId: Id | null, cardId: Id, listId: Id, itemId: Id) => void;
+}
+
+interface CardDetailProps extends LabelHandlers {
+  card: Card;
+  /** The column holding the card; null for an Inbox card */
+  colId: Id | null;
+  onClose: () => void;
+  onUpdate: (colId: Id | null, cardId: Id, fields: Partial<Card>) => void;
+  /** Not offered for an Inbox card, which has no board to go into yet */
+  onEnter?: (card: Card, colId: Id | null) => void;
+  onToggleDone?: (colId: Id | null, cardId: Id, origin: Point) => void;
+  root: RootBoard;
+  /** The board holding the card, titled for the "where" line */
+  path: TitledSegment[];
+  onMove: (colId: Id | null, cardId: Id, path: PathSegment[], destColId: Id) => unknown;
+  onDuplicate?: (colId: Id | null, cardId: Id) => void;
+  labels: Label[];
+  onToggleLabel: (colId: Id | null, cardId: Id, labelId: Id) => void;
+  onSetDue: (colId: Id | null, cardId: Id, day: IsoDay | null) => void;
+  onSetRepeat: (colId: Id | null, cardId: Id, repeat: Repeat | null) => void;
+  checklistActions: ChecklistActions;
+  /** Says where the card lives, when it was opened from away from its board */
+  showPath?: boolean;
+  favorited?: boolean;
+  onToggleFavorite?: () => void;
+  /** Opens straight onto the move picker */
+  initialMove?: boolean;
+  /** An Inbox card: no done state, archive, duplicate or board of its own */
+  inbox?: boolean;
+}
 
 export default function CardDetail({
   card, colId, onClose: onDismiss, onUpdate, onEnter, onToggleDone,
@@ -27,7 +72,7 @@ export default function CardDetail({
   onSetDue, onSetRepeat, checklistActions, showPath, favorited, onToggleFavorite,
   initialMove = false,
   inbox = false,
-}) {
+}: CardDetailProps) {
   const { t, locale } = useI18n();
   const mobile = useMediaQuery(MOBILE_TEXT_ENTRY);
   const [description, setDescription] = useState(card.description || "");
@@ -36,24 +81,24 @@ export default function CardDetail({
   const [labelsOpen, setLabelsOpen] = useState(false);
   const [moveOpen, setMoveOpen] = useState(initialMove);
   const [columnsOpen, setColumnsOpen] = useState(false);
-  const columnChip = useRef(null);
+  const columnChip = useRef<HTMLButtonElement>(null);
   const [addingChecklist, setAddingChecklist] = useState(false);
   const [checklistTitle, setChecklistTitle] = useState("");
   const [dueOpen, setDueOpen] = useState(false);
   const [title, setTitle] = useState(card.title || "");
-  const descRef = useRef(null);
-  const overlayRef = useRef(null);
-  const titleRef = useRef(null);
-  const commentRef = useRef(null);
-  const checklistRef = useRef(null);
+  const descRef = useRef<HTMLTextAreaElement>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const titleRef = useRef<HTMLTextAreaElement>(null);
+  const commentRef = useRef<HTMLTextAreaElement>(null);
+  const checklistRef = useRef<HTMLInputElement>(null);
   const revertTitle = useRef(false);
-  const labelBtn = useRef(null);
-  const dueBtn = useRef(null);
-  const labelChip = useRef(null);
-  const dueChip = useRef(null);
+  const labelBtn = useRef<HTMLButtonElement>(null);
+  const dueBtn = useRef<HTMLButtonElement>(null);
+  const labelChip = useRef<HTMLButtonElement>(null);
+  const dueChip = useRef<HTMLButtonElement>(null);
   // A popover opens under whichever control asked for it
-  const [labelsFrom, setLabelsFrom] = useState("bar");
-  const [dueFrom, setDueFrom] = useState("bar");
+  const [labelsFrom, setLabelsFrom] = useState<"bar" | "chip">("bar");
+  const [dueFrom, setDueFrom] = useState<"bar" | "chip">("bar");
 
   const onClose = useCallback(() => {
     if (overlayRef.current) dismissTextInput(overlayRef.current);
@@ -95,7 +140,7 @@ export default function CardDetail({
   }, [title]);
 
   useEffect(() => {
-    const handleKey = (e) => {
+    const handleKey = (e: KeyboardEvent) => {
       if (isComposingKey(e)) return;
       if (e.key === "Escape") onClose();
     };
@@ -110,10 +155,10 @@ export default function CardDetail({
     if (next !== card.title) onUpdate(colId, card.id, { title: next });
   };
 
-  const setDue = (value) => { onSetDue(colId, card.id, value); setDueOpen(false); };
+  const setDue = (value: IsoDay | null) => { onSetDue(colId, card.id, value); setDueOpen(false); };
   /* The popover stays open, unlike setting a date: a repetition is a rule
      being tuned, and each touch of it is rarely the last. */
-  const setRepeat = (value) => onSetRepeat(colId, card.id, value);
+  const setRepeat = (value: Repeat | null) => onSetRepeat(colId, card.id, value);
 
   const saveDescription = () => {
     descRef.current?.blur();
@@ -145,7 +190,7 @@ export default function CardDetail({
     closeChecklist();
   };
 
-  const deleteComment = (commentId) => {
+  const deleteComment = (commentId: Id) => {
     const comments = (card.comments || []).filter((c) => c.id !== commentId);
     onUpdate(colId, card.id, { comments });
   };
@@ -216,7 +261,7 @@ export default function CardDetail({
                 className={`modal-tool${card.done ? " on" : ""}`}
                 onClick={(e) => {
                   const r = e.currentTarget.getBoundingClientRect();
-                  onToggleDone(colId, card.id, {
+                  onToggleDone!(colId, card.id, {
                     x: r.left + r.width / 2,
                     y: r.top + r.height / 2,
                   });
@@ -291,7 +336,7 @@ export default function CardDetail({
                 >
                   <span
                     className="column-pick-dot"
-                    style={colorHex(homeColumn.color) ? { background: colorHex(homeColumn.color) } : undefined}
+                    style={colorHex(homeColumn.color) ? { background: colorHex(homeColumn.color)! } : undefined}
                     aria-hidden="true"
                   />
                   {homeColumn.emoji && <span>{homeColumn.emoji}</span>}
@@ -317,7 +362,7 @@ export default function CardDetail({
                   ref={dueChip}
                   className={`due-badge due-${due}`}
                   onClick={() => { setDueFrom("chip"); setDueOpen(true); }}
-                  title={repeats ? t(repeats, { n: card.repeat.every }) : t("due.title")}
+                  title={repeats ? t(repeats, { n: card.repeat!.every }) : t("due.title")}
                 >
                   {new Date(`${card.dueAt.slice(0, 10)}T12:00:00`).toLocaleDateString(dateFmt, {
                     day: "numeric",
@@ -338,7 +383,7 @@ export default function CardDetail({
               <div className="card-menu">
                 <ColumnPicker
                   columns={homeColumns}
-                  currentColId={colId}
+                  currentColId={colId!}
                   onPick={(destColId) => {
                     setColumnsOpen(false);
                     onMove(colId, card.id, segments, destColId);
@@ -387,7 +432,7 @@ export default function CardDetail({
 
             {!inbox && <button
               className="modal-act"
-              onClick={() => { onDuplicate(colId, card.id); onClose(); }}
+              onClick={() => { onDuplicate!(colId, card.id); onClose(); }}
             >
               <IconDuplicate size={15} />
               {t("detail.duplicate")}
@@ -436,7 +481,7 @@ export default function CardDetail({
             <h3 className="modal-section-title">{t("detail.subboard")}</h3>
             {!inbox && <button
               className="modal-drill-btn"
-              onClick={() => { onClose(); onEnter(card, colId); }}
+              onClick={() => { onClose(); onEnter!(card, colId); }}
             >
               {hasSubBoard ? t("detail.open_board") : t("detail.create_board")} &rarr;
             </button>}
@@ -446,31 +491,31 @@ export default function CardDetail({
             <p className="subboard-empty">{t("detail.subboard_empty")}</p>
           ) : (
             <>
-              {stats.cards > 0 && (
+              {stats!.cards > 0 && (
                 <div className="subboard-stats">
                   {tracksCompletion ? (
                     <>
                       <span className="subboard-bar" aria-hidden="true">
-                        <span style={{ width: `${(stats.done / stats.cards) * 100}%` }} />
+                        <span style={{ width: `${(stats!.done / stats!.cards) * 100}%` }} />
                       </span>
                       <span className="subboard-figure">
-                        {stats.done}/{stats.cards} {t("detail.done_count")}
+                        {stats!.done}/{stats!.cards} {t("detail.done_count")}
                       </span>
                     </>
                   ) : (
                     <span className="subboard-figure">
-                      {stats.cards} {t(stats.cards > 1 ? "detail.cards" : "detail.card")}
+                      {stats!.cards} {t(stats!.cards > 1 ? "detail.cards" : "detail.card")}
                     </span>
                   )}
                   {/* One level is just a board; more is the point of the thing */}
-                  {stats.depth > 1 && (
+                  {stats!.depth > 1 && (
                     <span className="subboard-figure">
-                      {stats.depth} {t(stats.depth > 1 ? "detail.levels" : "detail.level")}
+                      {stats!.depth} {t(stats!.depth > 1 ? "detail.levels" : "detail.level")}
                     </span>
                   )}
-                  {stats.overdue > 0 && (
+                  {stats!.overdue > 0 && (
                     <span className="subboard-figure subboard-late">
-                      {stats.overdue} {t("due.overdue").toLowerCase()}
+                      {stats!.overdue} {t("due.overdue").toLowerCase()}
                     </span>
                   )}
                   {insideDue && (
@@ -566,7 +611,7 @@ export default function CardDetail({
           ) : (
             <div
               className={`modal-desc-display ${!description ? "placeholder" : ""}`}
-              onClick={(e) => { if (!e.target.closest("a")) setEditingDesc(true); }}
+              onClick={(e) => { if (!(e.target as Element).closest("a")) setEditingDesc(true); }}
             >
               {description
                 ? <Markdown text={description} />

@@ -4,14 +4,49 @@ import { COL_COLORS, colorHex } from "../lib/palette";
 import EmojiGrid from "./EmojiGrid";
 import Popover from "./Popover";
 import { Droppable, Draggable } from "@hello-pangea/dnd";
-import Card from "./Card";
+import Card, { type LabelHandlers, type Point } from "./Card";
 import AddCard from "./AddCard";
 import { useI18n } from "../lib/i18n";
 import { isComposingKey } from "../lib/text-entry";
+import type { SortKey } from "../lib/board-utils";
+import type { Card as CardModel, Column as ColumnModel, Id, IsoDay, Label, Repeat } from "../lib/types";
 
+/**
+ * What the board's columns and cards can ask of it, addressed by column.
+ * The board passes them through unchanged, so it shares the same set.
+ */
+export interface ColumnHandlers extends LabelHandlers {
+  onAddCard: (colId: Id, title: string) => void;
+  onDeleteCard: (colId: Id, cardId: Id) => void;
+  onEnterCard: (card: CardModel, colId: Id) => void;
+  onEnterCardInTab: (card: CardModel, colId: Id) => void;
+  onOpenCardDetail: (card: CardModel, colId: Id, options?: { move?: boolean }) => void;
+  onRenameCard: (colId: Id, cardId: Id, title: string) => void;
+  onDeleteCol: (colId: Id) => void;
+  onRenameCol: (colId: Id, title: string) => void;
+  onUpdateColEmoji: (colId: Id, emoji: string) => void;
+  onUpdateColColor: (colId: Id, color: string) => void;
+  onToggleCardDone: (colId: Id, cardId: Id, origin: Point) => void;
+  onUnarchiveCard: (colId: Id, cardId: Id) => void;
+  onArchiveCard: (colId: Id, cardId: Id) => void;
+  onToggleCardLabel: (colId: Id, cardId: Id, labelId: Id) => void;
+  onSetCardDue: (colId: Id, cardId: Id, day: IsoDay | null) => void;
+  onSetCardRepeat: (colId: Id, cardId: Id, repeat: Repeat | null) => void;
+  onSortColumn: (colId: Id, key: SortKey) => void;
+  onMoveCard: (colId: Id, cardId: Id, destColId: Id) => void;
+}
 
+interface ColumnProps extends ColumnHandlers {
+  col: ColumnModel;
+  index: number;
+  /** Every column of the board, for moving a card between them */
+  columns: ColumnModel[];
+  labels: Label[];
+  labelFilter?: Id[];
+  spotlight?: Id | null;
+}
 
-function ColorPicker({ currentColor, onPick }) {
+function ColorPicker({ currentColor, onPick }: { currentColor: string; onPick: (color: string) => void }) {
   return (
     <div className="color-picker">
       {COL_COLORS.map((c) => (
@@ -64,18 +99,18 @@ export default function Column({
   labels,
   labelFilter = [],
   spotlight,
-}) {
+}: ColumnProps) {
   const { t } = useI18n();
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
-  const emojiBtnRef = useRef(null);
-  const colorBtnRef = useRef(null);
+  const emojiBtnRef = useRef<HTMLButtonElement>(null);
+  const colorBtnRef = useRef<HTMLButtonElement>(null);
 
   const hex = colorHex(col.color);
   const [showSort, setShowSort] = useState(false);
-  const sortBtnRef = useRef(null);
+  const sortBtnRef = useRef<HTMLButtonElement>(null);
 
   // Filtering hides cards without touching the board, so the count still
   // reflects the column and only the list narrows.
@@ -189,7 +224,7 @@ export default function Column({
                 <Popover anchorRef={sortBtnRef} align="right" onClose={() => setShowSort(false)}>
                   <div className="col-sort-menu">
                     <span className="label-picker-title">{t("sort.title")}</span>
-                    {["due", "title", "done"].map((key) => (
+                    {(["due", "title", "done"] as SortKey[]).map((key) => (
                       <button
                         key={key}
                         className="col-sort-option"
