@@ -205,7 +205,7 @@ mobile app. How it works is described in
 
 ## Getting started
 
-Requires Node.js 22.12 or newer within Node 22, npm and Python 3 (for the shortcut export tests). Install
+Requires Node.js 22.18 or newer within Node 22, npm and Python 3 (for the shortcut export tests). Install
 the Firebase CLI to deploy; the security integration checks also need Java 21.
 
 
@@ -223,7 +223,7 @@ firebase use --add
 ```
 
 `authDomain` and `storageBucket` are derived from the project ID in
-`src/lib/firebase.js`. These values are public by nature: security comes from
+`src/lib/firebase.ts`. These values are public by nature: security comes from
 the Firestore rules, not from keeping them secret. On the Cloud Functions side,
 the origin defaults to `https://<project>.web.app`; for a custom domain, set
 `OSHKA_ORIGIN` in `functions/.env`.
@@ -238,6 +238,7 @@ npm run dev
 | `npm test` | builds the shared Functions bundle, then runs the test suite |
 | `npm run test:watch` | tests in watch mode |
 | `npm run lint` | ESLint |
+| `npm run typecheck` | TypeScript, without emitting anything |
 | `npm run build` | production build |
 | `firebase deploy --only hosting` | deploy the app |
 | `firebase deploy --only functions:mcp,hosting,firestore` | deploy the MCP server (and the rewrites that serve it) |
@@ -251,11 +252,12 @@ ESLint uses a patched `minimatch` 11 override; the Functions tree overrides
 `rimraf`'s `glob` with the patched 14.x API. These temporary overrides address
 GHSA-g3hv-75wg-m249 and GHSA-3g3m-2fjr-6pw4 while upstream packages update
 their version ranges. Recheck them when updating ESLint or Firebase.
-The lint, tests and emulator checks exercise these dependency trees as well
+The lint, type check, tests and emulator checks exercise these dependency trees as well
 as Firestore access rules.
 
 ```bash
 npm run lint
+npm run typecheck
 npm test
 npm run build
 npx --yes firebase-tools@15.34.1 emulators:exec --only auth,firestore --project demo-oshka 'node scripts/check-security-emulator.mjs'

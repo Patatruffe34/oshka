@@ -16,7 +16,7 @@ const read = (f) => fs.readFileSync(path.join(src, f), "utf8");
 
 /** The two locale blocks, as key sets: en comes first in the file, fr second */
 const locales = () => {
-  const keys = [...read("lib/i18n.jsx").matchAll(/^ {4}"([^"]+)":/gm)].map((m) => m[1]);
+  const keys = [...read("lib/i18n.tsx").matchAll(/^ {4}"([^"]+)":/gm)].map((m) => m[1]);
   const en = new Set();
   const fr = new Set();
   for (const k of keys) (en.has(k) ? fr : en).add(k);

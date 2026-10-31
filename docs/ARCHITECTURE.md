@@ -22,6 +22,11 @@ The recursion is in the last line: a card holds a board, which holds columns,
 which hold cards. There is no boards table and no cross-references — the
 structure *is* the tree.
 
+Firestore enforces none of this, since it only sees a JSON string. The
+contract lives in `src/lib/types.ts`: the app, the MCP server and the capture
+integrations all write this shape, and the type checker holds the code in
+`src/lib` to it.
+
 **Why a single document.** Text compresses well: a tree of several hundred
 cards stays at a few dozen kilobytes, far below the one-megabyte limit per
 document. In exchange, the whole tree is in memory at all times, and that is
@@ -157,7 +162,7 @@ these transitions.
 On mobile (≤ 640 px), the capture field folds when the list is scrolled down,
 to give its height back to the cards, and returns as soon as you scroll up or
 near the top of the list. It stays unfolded while it has focus or holds a
-draft. `foldCapture` (`src/lib/inbox-motion.js`) decides from the scroll: a
+draft. `foldCapture` (`src/lib/inbox-motion.ts`) decides from the scroll: a
 margin ignores small jolts, the reflow caused by the fold itself is ignored
 during its transition, and the field does not fold if the list would no longer
 have enough to scroll to bring it back. The fold animates a grid row (no
@@ -259,10 +264,10 @@ testable:
 
 | File | Role |
 |---|---|
-| `planner.js` | slicing the Agenda and the dates of a drop |
-| `mindmap.js` | the tree as a disc, angles proportional to the number of leaves |
-| `search.js` | filtering walk, with each result's path |
-| `board-utils.js` | the rest — paths, moves, labels, statistics |
+| `planner.ts` | slicing the Agenda and the dates of a drop |
+| `mindmap.ts` | the tree as a disc, angles proportional to the number of leaves |
+| `search.ts` | filtering walk, with each result's path |
+| `board-utils.ts` | the rest — paths, moves, labels, statistics |
 
 ### The ✅ column convention
 
@@ -390,10 +395,10 @@ depth that kept the last branch walked instead of the deepest.
 
 ```bash
 # The gesture: break on purpose, check that it fails, restore.
-cp src/lib/planner.js /tmp/bak
+cp src/lib/planner.ts /tmp/bak
 # … change a boundary, a comparison, a guard …
 npm test
-cp /tmp/bak src/lib/planner.js
+cp /tmp/bak src/lib/planner.ts
 ```
 
 ---
@@ -404,7 +409,7 @@ The Firestore rules (`firestore.rules`) fit in three blocks: a user only reads
 and writes `boards/{their uid}`, connection codes are closed to the client, and
 everything else is denied by default.
 
-The Firebase identifiers used by `src/lib/firebase.js` — the project ID, from
+The Firebase identifiers used by `src/lib/firebase.ts` — the project ID, from
 which `authDomain` and `storageBucket` are derived, and the API key — **are
 public by nature**. A web app necessarily exposes them; security comes from the
 rules, not from keeping them secret. They come from environment variables so
@@ -423,7 +428,7 @@ rewrite the logic: `npm run build:functions` bundles `src/lib` as CommonJS
 (`functions/mcp/build/oshka.cjs`, generated before each deployment). Ticking a
 repeating card, dropping into ✅, what "this week" means: everything goes
 through the functions the tests already cover. Default settings live in
-`src/lib/settings.js` for the same reason. The server's time zone is set to
+`src/lib/settings.ts` for the same reason. The server's time zone is set to
 `Europe/Paris` (`OSHKA_TIMEZONE`), otherwise "today" would be UTC's.
 
 **Two writers.** Each tool reads, modifies and rewrites `boardJson` in a

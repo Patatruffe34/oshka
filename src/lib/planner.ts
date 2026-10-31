@@ -1,13 +1,32 @@
-import { visibleCards, hasDoneColumn } from "./board-utils";
+import { visibleCards, hasDoneColumn, type RankEntry } from "./board-utils";
+import type { Board, Card, Id, IsoDay, TitledSegment, WeekMode } from "./types";
 
 /** The columns, in the order the week runs */
-export const LANES = ["today", "tomorrow", "week", "nextWeek", "later", "stalled"];
+export const LANES = ["today", "tomorrow", "week", "nextWeek", "later", "stalled"] as const;
+
+export type Lane = (typeof LANES)[number];
+
+/** A card as the Agenda shows it: where it lives, and whether it is late */
+export interface PlannedItem {
+  card: Card;
+  colId: Id;
+  colTitle: string;
+  colEmoji: string;
+  /** Path to the board holding the card */
+  path: TitledSegment[];
+  overdue?: boolean;
+}
+
+export interface PlanOptions {
+  now?: Date;
+  weekMode?: WeekMode;
+}
 
 /** Where a card lands when dropped in a lane, if it has no better date */
 const LATER_DAYS = 30;
 
-const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
-const dayGap = (dueAt, now) =>
+const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+const dayGap = (dueAt: string, now: Date) =>
   Math.round((startOfDay(new Date(dueAt)) - startOfDay(now)) / 86400000);
 
 /**
@@ -17,7 +36,7 @@ const dayGap = (dueAt, now) =>
  * setting rather than a guess: the rest of the calendar week, or the next
  * seven days whatever day it is.
  */
-export const weekReach = (now, mode) => {
+export const weekReach = (now: Date, mode: WeekMode | undefined): number => {
   if (mode !== "calendar") return 7;
   // getDay: 0 is Sunday. Monday-based, so Sunday closes the week.
   const today = (now.getDay() + 6) % 7;
@@ -25,10 +44,10 @@ export const weekReach = (now, mode) => {
 };
 
 /** Where "next week" stops: one week past the end of this one */
-export const nextWeekReach = (now, mode) => weekReach(now, mode) + 7;
+export const nextWeekReach = (now: Date, mode: WeekMode | undefined): number => weekReach(now, mode) + 7;
 
 /** The n-th day from now, as the ISO day a due date is stored as */
-export const dayFromNow = (n, now = new Date()) => {
+export const dayFromNow = (n: number, now = new Date()): IsoDay => {
   const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + n);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
     d.getDate()
@@ -42,7 +61,7 @@ export const dayFromNow = (n, now = new Date()) => {
  * calendar week no Friday is left ahead, and the end of the lane is then the
  * only honest answer.
  */
-const fridayIn = (now, from, to) => {
+const fridayIn = (now: Date, from: number, to: number): number => {
   let gap = (5 - now.getDay() + 7) % 7; // getDay: Friday is 5
   while (gap < from) gap += 7;
   return gap <= to ? gap : to;
@@ -59,11 +78,16 @@ const fridayIn = (now, from, to) => {
  * The standstill lane is computed, not a state — nothing can be dropped into
  * being stuck, so it returns undefined and the caller refuses the move.
  */
-export const dateForLane = (lane, dueAt, { now = new Date(), weekMode = "rolling" } = {}) => {
+export const dateForLane = (
+  lane: string,
+  dueAt: string | null | undefined,
+  { now = new Date(), weekMode = "rolling" }: PlanOptions = {},
+): IsoDay | undefined => {
   const reach = weekReach(now, weekMode);
   const next = nextWeekReach(now, weekMode);
   const gap = dueAt ? dayGap(dueAt, now) : null;
-  const keep = () => dueAt.slice(0, 10);
+  // Only reached once a gap was measured, so with a date
+  const keep = () => dueAt!.slice(0, 10);
 
   switch (lane) {
     case "today":
@@ -92,7 +116,7 @@ export const dateForLane = (lane, dueAt, { now = new Date(), weekMode = "rolling
  * A branch where nothing carries a date is a branch nobody has committed to —
  * which is the thing worth surfacing, not the individual undated card.
  */
-const branchHasDate = (board) => {
+const branchHasDate = (board: Board | null | undefined): boolean => {
   for (const col of board?.columns ?? []) {
     for (const card of visibleCards(col)) {
       if (card.done) continue;
@@ -103,7 +127,7 @@ const branchHasDate = (board) => {
   return false;
 };
 
-const branchHasCards = (board) =>
+const branchHasCards = (board: Board | null | undefined): boolean =>
   (board?.columns ?? []).some((col) => visibleCards(col).length > 0);
 
 /**
@@ -123,19 +147,22 @@ const branchHasCards = (board) =>
  * dropped in it. A board without one is a list, a grid, a set of notes: it has
  * no end state, so it cannot be behind on one.
  */
-export const planWeek = (root, { now = new Date(), weekMode = "rolling" } = {}) => {
-  const lanes = Object.fromEntries(LANES.map((l) => [l, []]));
+export const planWeek = (
+  root: Board | null | undefined,
+  { now = new Date(), weekMode = "rolling" }: PlanOptions = {},
+): Record<Lane, PlannedItem[]> => {
+  const lanes: Record<Lane, PlannedItem[]> = { today: [], tomorrow: [], week: [], nextWeek: [], later: [], stalled: [] };
   const reach = weekReach(now, weekMode);
   const next = nextWeekReach(now, weekMode);
 
-  const walk = (board, path) => {
+  const walk = (board: Board | null | undefined, path: TitledSegment[]) => {
     for (const col of board?.columns ?? []) {
       for (const card of visibleCards(col)) {
         if (card.done) {
           walk(card.board, [...path, { colId: col.id, cardId: card.id, cardTitle: card.title }]);
           continue;
         }
-        const here = { card, colId: col.id, colTitle: col.title, colEmoji: col.emoji, path };
+        const here: PlannedItem = { card, colId: col.id, colTitle: col.title, colEmoji: col.emoji, path };
         let descend = true;
 
         if (card.dueAt) {
@@ -165,7 +192,9 @@ export const planWeek = (root, { now = new Date(), weekMode = "rolling" } = {}) 
 
   walk(root, []);
 
-  const byDate = (a, b) => new Date(a.card.dueAt) - new Date(b.card.dueAt);
+  // Every card in the dated lanes has a due date
+  const byDate = (a: PlannedItem, b: PlannedItem) =>
+    new Date(a.card.dueAt!).getTime() - new Date(b.card.dueAt!).getTime();
   /**
    * Today is the only lane you order by hand.
    *
@@ -179,7 +208,7 @@ export const planWeek = (root, { now = new Date(), weekMode = "rolling" } = {}) 
    * burying an unplaced card under a hand-made list is exactly the miss this
    * view exists to prevent.
    */
-  const byRank = (a, b) => (a.card.rank ?? -1) - (b.card.rank ?? -1) || byDate(a, b);
+  const byRank = (a: PlannedItem, b: PlannedItem) => (a.card.rank ?? -1) - (b.card.rank ?? -1) || byDate(a, b);
   lanes.today.sort(byRank);
   lanes.tomorrow.sort(byDate);
   lanes.week.sort(byDate);
@@ -196,7 +225,7 @@ export const planWeek = (root, { now = new Date(), weekMode = "rolling" } = {}) 
  * is the part you can reconstruct, so it is the part that goes — cutting the
  * tail instead would drop the more precise of the two.
  */
-export const shortTrail = (steps) =>
+export const shortTrail = (steps: string[]): string[] =>
   steps.length <= 3 ? steps : [steps[0], "\u2026", steps[steps.length - 1]];
 
 /**
@@ -207,7 +236,7 @@ export const shortTrail = (steps) =>
  * place to be put against. Cards of one lane live on different boards, so each
  * one is named by the path to reach it.
  */
-export const reorderEntries = (items, from, to) => {
+export const reorderEntries = (items: readonly PlannedItem[], from: number, to: number): RankEntry[] => {
   const next = [...items];
   const [moved] = next.splice(from, 1);
   next.splice(to, 0, moved);
@@ -224,9 +253,18 @@ export const reorderEntries = (items, from, to) => {
  * Order is kept: a group appears where its first card fell, so the soonest
  * deadline still leads the column.
  */
-export const groupByBoard = (items, rootLabel) => {
-  const groups = [];
-  const seen = new Map();
+export interface BoardGroup {
+  key: string;
+  path: TitledSegment[];
+  colTitle: string;
+  colEmoji: string;
+  trail: string[];
+  items: PlannedItem[];
+}
+
+export const groupByBoard = (items: readonly PlannedItem[], rootLabel: string): BoardGroup[] => {
+  const groups: BoardGroup[] = [];
+  const seen = new Map<string, BoardGroup>();
   for (const item of items) {
     const key = item.path.map((p) => p.cardId).join("/") + "|" + item.colId;
     if (!seen.has(key)) {
@@ -243,7 +281,7 @@ export const groupByBoard = (items, rootLabel) => {
       seen.set(key, group);
       groups.push(group);
     }
-    seen.get(key).items.push(item);
+    seen.get(key)!.items.push(item);
   }
   return groups;
 };

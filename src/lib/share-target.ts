@@ -1,7 +1,20 @@
 const PENDING_KEY = "oshka_pending_share_v1";
 
+export interface SharedContent {
+  title: string;
+  description: string;
+}
+
+/** A share waiting for the board; `empty` when nothing usable came with it */
+export interface PendingShare extends SharedContent {
+  id: string;
+  empty?: true;
+}
+
+type ShareStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
+
 /** Android may put the URL in text rather than url. Keep the original content. */
-export function parseSharedContent(href) {
+export function parseSharedContent(href: string): SharedContent | null {
   const address = new URL(href);
   if (address.pathname.replace(/\/$/, "") !== "/share") return null;
   // iPhone shortcuts use the fragment so the content stays out of server logs.
@@ -19,9 +32,9 @@ export function parseSharedContent(href) {
   };
 }
 
-export function readPendingShare(storage = localStorage) {
+export function readPendingShare(storage: ShareStorage = localStorage): PendingShare | null {
   try {
-    const pending = JSON.parse(storage.getItem(PENDING_KEY));
+    const pending = JSON.parse(storage.getItem(PENDING_KEY) ?? "null");
     return pending && typeof pending.id === "string" && typeof pending.title === "string"
       && (pending.title.trim() || pending.empty === true) && typeof pending.description === "string" ? pending : null;
   } catch {
@@ -30,18 +43,22 @@ export function readPendingShare(storage = localStorage) {
 }
 
 /** Called before React/Auth can rewrite the URL. Survives a magic-link round trip. */
-export function stageIncomingShare(location = window.location, history = window.history, storage = localStorage) {
+export function stageIncomingShare(
+  location: Pick<Location, "href"> = window.location,
+  history: Pick<History, "replaceState"> = window.history,
+  storage: ShareStorage = localStorage,
+): PendingShare | null {
   const content = parseSharedContent(location.href);
   const isShare = new URL(location.href).pathname.replace(/\/$/, "") === "/share";
   if (!content && !isShare) return readPendingShare(storage);
   // A broken/old shortcut must show an explanation, not silently open a board.
-  const pending = { id: crypto.randomUUID(), ...(content || { title: "", description: "", empty: true }) };
+  const pending: PendingShare = { id: crypto.randomUUID(), ...(content || { title: "", description: "", empty: true as const }) };
   try { storage.setItem(PENDING_KEY, JSON.stringify(pending)); } catch { /* Still works in this tab. */ }
   history.replaceState(null, "", "/");
   return pending;
 }
 
-export function clearPendingShare(id, storage = localStorage) {
+export function clearPendingShare(id: string, storage: ShareStorage = localStorage): void {
   try {
     // An older tab must not discard a more recent incoming share.
     if (readPendingShare(storage)?.id === id) storage.removeItem(PENDING_KEY);

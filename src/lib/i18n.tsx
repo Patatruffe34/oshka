@@ -1,6 +1,14 @@
-import { createContext, useContext, useState, useCallback } from "react";
+import { createContext, useContext, useState, useCallback, type ReactNode } from "react";
 
-const translations = {
+export type TranslationVars = Record<string, string | number>;
+
+export interface I18nValue {
+  locale: string;
+  changeLocale: (lang: string) => void;
+  t: (key: string, vars?: TranslationVars) => string;
+}
+
+const translations: Record<string, Record<string, string>> = {
   en: {
     // Auth
     "auth.subtitle": "Boards within boards",
@@ -907,19 +915,19 @@ const translations = {
   },
 };
 
-const I18nContext = createContext();
+const I18nContext = createContext<I18nValue | undefined>(undefined);
 
-function detectLocale() {
+function detectLocale(): string {
   const saved = localStorage.getItem("inceptio_lang");
   if (saved && translations[saved]) return saved;
   const nav = navigator.language?.slice(0, 2);
   return translations[nav] ? nav : "en";
 }
 
-export function I18nProvider({ children }) {
+export function I18nProvider({ children }: { children: ReactNode }) {
   const [locale, setLocale] = useState(detectLocale);
 
-  const changeLocale = useCallback((lang) => {
+  const changeLocale = useCallback((lang: string) => {
     if (translations[lang]) {
       setLocale(lang);
       localStorage.setItem("inceptio_lang", lang);
@@ -934,10 +942,10 @@ export function I18nProvider({ children }) {
    * happen to agree, "3 days from now" and "d'ici 3 jours" do not.
    */
   const t = useCallback(
-    (key, vars) => {
+    (key: string, vars?: TranslationVars) => {
       const phrase = translations[locale]?.[key] ?? translations.en[key] ?? key;
       if (!vars) return phrase;
-      return phrase.replace(/\{(\w+)\}/g, (whole, name) => vars[name] ?? whole);
+      return phrase.replace(/\{(\w+)\}/g, (whole, name: string) => String(vars[name] ?? whole));
     },
     [locale]
   );
@@ -949,6 +957,8 @@ export function I18nProvider({ children }) {
   );
 }
 
-export function useI18n() {
-  return useContext(I18nContext);
+export function useI18n(): I18nValue {
+  const value = useContext(I18nContext);
+  if (!value) throw new Error("useI18n is used outside I18nProvider");
+  return value;
 }

@@ -1,4 +1,43 @@
 import { visibleCards } from "./board-utils";
+import type { Board, Card, Id, TitledSegment } from "./types";
+
+export interface MindNode {
+  kind: "root" | "column" | "card";
+  key: string;
+  label: string;
+  depth: number;
+  children: MindNode[];
+  /** How many children a collapsed node is hiding */
+  hidden: number;
+  collapsed?: boolean;
+  path?: TitledSegment[];
+  id?: Id;
+  // Columns
+  emoji?: string;
+  color?: string;
+  count?: number;
+  done?: number;
+  // Cards
+  colId?: Id;
+  childPath?: TitledSegment[];
+  card?: Card;
+  hasChildren?: boolean;
+}
+
+export interface PlacedNode extends MindNode {
+  angle: number;
+  radius: number;
+  x: number;
+  y: number;
+  angleFrom: number;
+  angleTo: number;
+}
+
+export interface MindEdge {
+  from: PlacedNode;
+  to: PlacedNode;
+  key: string;
+}
 
 /**
  * Build the mind-map tree: root → columns → cards → columns → …
@@ -9,10 +48,15 @@ import { visibleCards } from "./board-utils";
  * `isCollapsed(key)` prunes a branch: its children are dropped but the node
  * still reports how many descendants it hides.
  */
-export function buildMindTree(root, rootLabel = "Root", isCollapsed = () => false) {
-  const makeNode = (partial) => ({ children: [], hidden: 0, ...partial });
+export function buildMindTree(
+  root: Board,
+  rootLabel = "Root",
+  isCollapsed: (key: string) => boolean = () => false,
+): MindNode {
+  const makeNode = (partial: Omit<MindNode, "children" | "hidden"> & Partial<MindNode>): MindNode =>
+    ({ children: [], hidden: 0, ...partial });
 
-  const walkBoard = (board, path, depth, keyPrefix) =>
+  const walkBoard = (board: Board, path: TitledSegment[], depth: number, keyPrefix: string): MindNode[] =>
     board.columns.map((col) => {
       const key = `${keyPrefix}${col.id}`;
       const cards = visibleCards(col);
@@ -84,7 +128,7 @@ export function buildMindTree(root, rootLabel = "Root", isCollapsed = () => fals
 }
 
 /** Leaves under a node — the unit angular space is shared out by */
-function countLeaves(node) {
+function countLeaves(node: MindNode): number {
   if (node.children.length === 0) return 1;
   return node.children.reduce((n, c) => n + countLeaves(c), 0);
 }
@@ -97,20 +141,23 @@ function countLeaves(node) {
  * a dense branch from overlapping itself while a thin one wastes a whole
  * quadrant.
  */
-export function radialLayout(tree, options = {}) {
+export function radialLayout(
+  tree: MindNode,
+  options: { radiusStep?: number; startAngle?: number; sweep?: number } = {},
+): { nodes: PlacedNode[]; edges: MindEdge[]; maxRadius: number; depth: number } {
   const {
     radiusStep = 150,
     startAngle = -Math.PI / 2, // straight up, so the first branch reads first
     sweep = Math.PI * 2,
   } = options;
 
-  const nodes = [];
-  const edges = [];
+  const nodes: PlacedNode[] = [];
+  const edges: MindEdge[] = [];
 
-  const place = (node, angleFrom, angleTo, parent) => {
+  const place = (node: MindNode, angleFrom: number, angleTo: number, parent: PlacedNode | null): PlacedNode => {
     const mid = (angleFrom + angleTo) / 2;
     const radius = node.depth * radiusStep;
-    const placed = {
+    const placed: PlacedNode = {
       ...node,
       angle: mid,
       radius,
@@ -147,9 +194,9 @@ export function radialLayout(tree, options = {}) {
  * Keys of the nodes sitting at or below a depth, so a narrow screen can open
  * on the first rings instead of a disc it has to shrink into illegibility.
  */
-export function keysBelowDepth(tree, depth) {
-  const keys = new Set();
-  const walk = (node) => {
+export function keysBelowDepth(tree: MindNode, depth: number): Set<string> {
+  const keys = new Set<string>();
+  const walk = (node: MindNode) => {
     if (node.depth >= depth && node.children.length > 0) keys.add(node.key);
     node.children.forEach(walk);
   };
@@ -158,9 +205,9 @@ export function keysBelowDepth(tree, depth) {
 }
 
 /** Keys of every node that has children — for expand/collapse all */
-export function allNodeKeys(tree) {
-  const keys = new Set();
-  const walk = (node) => {
+export function allNodeKeys(tree: MindNode): Set<string> {
+  const keys = new Set<string>();
+  const walk = (node: MindNode) => {
     if (node.children.length > 0 || node.hidden > 0) {
       if (node.key !== "") keys.add(node.key);
     }

@@ -7,7 +7,9 @@ const GEOMETRY_TRANSITIONS = new Set([
 export function settleInboxTransition() {
   const panel = document.getElementById("oshka-inbox");
   for (const animation of panel?.getAnimations?.({ subtree: true }) ?? []) {
-    if (GEOMETRY_TRANSITIONS.has(animation.transitionProperty)) animation.finish();
+    // A CSSTransition, which the DOM typings do not describe yet
+    const property = (animation as Animation & { transitionProperty?: string }).transitionProperty;
+    if (property && GEOMETRY_TRANSITIONS.has(property)) animation.finish();
   }
 }
 
@@ -15,15 +17,29 @@ const FOLD_TOP = 24; // near the top of the list, the capture form is always sho
 const FOLD_SLACK = 12; // ignore jitter smaller than this before changing direction
 const FOLD_SETTLE = 300; // longer than the fold transition: its own reflow is not a gesture
 
-export const CAPTURE_UNFOLDED = { folded: false, anchor: 0, changedAt: -Infinity };
+export interface FoldState {
+  folded: boolean;
+  /** Scroll position the next change of direction is measured from */
+  anchor: number;
+  changedAt: number;
+}
+
+export interface FoldInput {
+  top: number;
+  room: number;
+  now: number;
+  pinned?: boolean;
+}
+
+export const CAPTURE_UNFOLDED: FoldState = { folded: false, anchor: 0, changedAt: -Infinity };
 
 /**
  * Decide whether the mobile capture form folds while the Inbox list scrolls.
  * `room` is how far the list could still scroll once folded: folding without it
  * would clamp the list to the top and leave no gesture to bring the form back.
  */
-export function foldCapture(state, { top, room, now, pinned }) {
-  const at = (folded) => ({ folded, anchor: top, changedAt: folded === state.folded ? state.changedAt : now });
+export function foldCapture(state: FoldState, { top, room, now, pinned }: FoldInput): FoldState {
+  const at = (folded: boolean): FoldState => ({ folded, anchor: top, changedAt: folded === state.folded ? state.changedAt : now });
   if (pinned || top <= FOLD_TOP) return at(false);
   if (now - state.changedAt < FOLD_SETTLE) return at(state.folded);
   if (state.folded) {
