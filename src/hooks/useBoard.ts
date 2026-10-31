@@ -91,6 +91,13 @@ type HeldState = Omit<BoardState, "root"> & { root: RootBoard | null };
 
 export type SaveError = "conflict" | "too-large" | "failed" | "offline" | "storage";
 
+/** The last move through history, for the toast that confirms it */
+export interface HistoryEvent {
+  label: string | null | undefined;
+  at: number;
+  direction: "undo" | "redo";
+}
+
 /**
  * One account's connection to its document.
  *
@@ -196,11 +203,7 @@ export function useBoard(userId: string | null | undefined) {
   const future = useRef<HistoryEntry[]>([]);
   const lastSnapshot = useRef<{ label: string | null | undefined; at: number }>({ label: null, at: 0 });
   const [historySize, setHistorySize] = useState({ undo: 0, redo: 0 });
-  const [lastUndone, setLastUndone] = useState<{
-    label: string | null | undefined;
-    at: number;
-    direction: "undo" | "redo";
-  } | null>(null);
+  const [lastUndone, setLastUndone] = useState<HistoryEvent | null>(null);
 
   // A session owns its draft, transaction and callbacks. Closing one account
   // cannot complete a read or schedule a write against the next account.
