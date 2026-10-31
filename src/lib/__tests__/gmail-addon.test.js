@@ -1,10 +1,7 @@
 import fs from "node:fs";
 import vm from "node:vm";
-import { createRequire } from "node:module";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-
-const require = createRequire(import.meta.url);
-const { normalizeMail } = require("../../../functions/gmail/app.js");
+import { normalizeMail } from "../../../functions/gmail/app";
 
 const source = fs.readFileSync(new URL("../../../integrations/gmail/Code.gs", import.meta.url), "utf8");
 const manifest = JSON.parse(fs.readFileSync(new URL("../../../integrations/gmail/appsscript.json", import.meta.url), "utf8"));

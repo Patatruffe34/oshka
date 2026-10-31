@@ -1,12 +1,16 @@
-const crypto = require("node:crypto");
-const { getAuth } = require("firebase-admin/auth");
-const { getFirestore } = require("firebase-admin/firestore");
-const {
+import { createHash, randomBytes } from "node:crypto";
+import type { Request, Response } from "express";
+import type { DecodedIdToken } from "firebase-admin/auth";
+import { getAuth } from "firebase-admin/auth";
+import { getFirestore, type DocumentData, type DocumentReference, type DocumentSnapshot } from "firebase-admin/firestore";
+import {
   InvalidClientMetadataError,
   InvalidGrantError,
   InvalidTokenError,
-} = require("@modelcontextprotocol/sdk/server/auth/errors.js");
-const { consentPage } = require("./consent-page");
+} from "@modelcontextprotocol/sdk/server/auth/errors.js";
+import type { OAuthServerProvider } from "@modelcontextprotocol/sdk/server/auth/provider.js";
+import type { OAuthClientInformationFull, OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
+import { consentPage, type ConsentPageOptions } from "./consent-page";
 
 /*
  * The MCP server is its own OAuth authorization server, with Firebase Auth
@@ -34,7 +38,7 @@ const REQUEST_TTL = 15 * 60;
 const TRUSTED_ORIGINS = ["https://claude.ai", "https://claude.com"];
 const LOOPBACK = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
-const allowedRedirect = (uri) => {
+const allowedRedirect = (uri: string) => {
   try {
     const url = new URL(uri);
     return TRUSTED_ORIGINS.includes(url.origin) || (LOOPBACK.has(url.hostname) && url.protocol === "http:");
@@ -44,15 +48,23 @@ const allowedRedirect = (uri) => {
 };
 
 const db = () => getFirestore();
-const col = (name) => db().collection(name);
-const hash = (secret) => crypto.createHash("sha256").update(secret).digest("hex");
-const newSecret = () => crypto.randomBytes(32).toString("base64url");
-const expiry = (seconds) => new Date(Date.now() + seconds * 1000);
-const live = (snap) => snap.exists && snap.data().expiresAt.toDate() > new Date();
+const col = (name: string) => db().collection(name);
+const hash = (secret: string) => createHash("sha256").update(secret).digest("hex");
+const newSecret = () => randomBytes(32).toString("base64url");
+const expiry = (seconds: number) => new Date(Date.now() + seconds * 1000);
+const live = (snap: DocumentSnapshot) => snap.exists && snap.data()!.expiresAt.toDate() > new Date();
 // Firestore refuses undefined fields, and client metadata is full of them
-const plain = (value) => JSON.parse(JSON.stringify(value));
+const plain = (value: unknown) => JSON.parse(JSON.stringify(value));
 
-async function issueTokens({ uid, clientId, scopes, resource }) {
+/** What an authorization code or a token stands for */
+interface Grant {
+  uid: string;
+  clientId: string;
+  scopes: string[];
+  resource: string | null;
+}
+
+async function issueTokens({ uid, clientId, scopes, resource }: Grant): Promise<OAuthTokens> {
   const access = newSecret();
   const refresh = newSecret();
   const grant = { uid, clientId, scopes, resource };
@@ -73,22 +85,22 @@ async function issueTokens({ uid, clientId, scopes, resource }) {
  * Spend a single-use secret: read it, check it, delete it, in one transaction,
  * so the same code or refresh token can never be exchanged twice.
  */
-const spend = (ref, check) =>
+const spend = (ref: DocumentReference, check: (data: DocumentData) => boolean) =>
   db().runTransaction(async (tx) => {
     const snap = await tx.get(ref);
-    if (!live(snap) || !check(snap.data())) throw new InvalidGrantError("Invalid or expired grant");
+    if (!live(snap) || !check(snap.data()!)) throw new InvalidGrantError("Invalid or expired grant");
     tx.delete(ref);
-    return snap.data();
+    return snap.data() as Grant;
   });
 
-function createProvider({ firebaseConfig }) {
+export function createProvider({ firebaseConfig }: { firebaseConfig: ConsentPageOptions["firebase"] }): OAuthServerProvider {
   return {
     clientsStore: {
       async getClient(clientId) {
         const snap = await col("mcp_clients").doc(clientId).get();
-        return snap.exists ? snap.data() : undefined;
+        return snap.exists ? (snap.data() as OAuthClientInformationFull) : undefined;
       },
-      async registerClient(client) {
+      async registerClient(client: OAuthClientInformationFull) {
         const refused = client.redirect_uris.filter((uri) => !allowedRedirect(uri));
         if (refused.length) {
           throw new InvalidClientMetadataError(`Redirect URI not allowed: ${refused.join(", ")}`);
@@ -126,10 +138,10 @@ function createProvider({ firebaseConfig }) {
 
     async challengeForAuthorizationCode(client, code) {
       const snap = await col("mcp_grants").doc(hash(code)).get();
-      if (!live(snap) || snap.data().clientId !== client.client_id) {
+      if (!live(snap) || snap.data()!.clientId !== client.client_id) {
         throw new InvalidGrantError("Invalid or expired authorization code");
       }
-      return snap.data().codeChallenge;
+      return snap.data()!.codeChallenge;
     },
 
     async exchangeAuthorizationCode(client, code, _verifier, redirectUri) {
@@ -150,8 +162,8 @@ function createProvider({ firebaseConfig }) {
 
     async verifyAccessToken(token) {
       const snap = await col("mcp_tokens").doc(hash(token)).get();
-      if (!live(snap) || snap.data().kind !== "access") throw new InvalidTokenError("Invalid or expired token");
-      const t = snap.data();
+      if (!live(snap) || snap.data()!.kind !== "access") throw new InvalidTokenError("Invalid or expired token");
+      const t = snap.data()!;
       return {
         token,
         clientId: t.clientId,
@@ -165,13 +177,13 @@ function createProvider({ firebaseConfig }) {
     async revokeToken(client, { token }) {
       const ref = col("mcp_tokens").doc(hash(token));
       const snap = await ref.get();
-      if (snap.exists && snap.data().clientId === client.client_id) await ref.delete();
+      if (snap.exists && snap.data()!.clientId === client.client_id) await ref.delete();
     },
   };
 }
 
 /** Where the sign-in page posts its answer: a code for the client, or a no. */
-async function approve(req, res) {
+export async function approve(req: Request, res: Response): Promise<void> {
   const { request, decision, id_token } = req.body ?? {};
   const ref = col("mcp_requests").doc(String(request || "-"));
   const snap = await ref.get();
@@ -179,14 +191,14 @@ async function approve(req, res) {
     res.status(400).type("text").send("This request has expired. Start again from your app.");
     return;
   }
-  const pending = snap.data();
+  const pending = snap.data()!;
   const back = new URL(pending.redirectUri);
 
   if (decision !== "allow") {
     await ref.delete();
     back.searchParams.set("error", "access_denied");
   } else {
-    let user;
+    let user: DecodedIdToken;
     try {
       user = await getAuth().verifyIdToken(String(id_token));
     } catch {
@@ -210,4 +222,3 @@ async function approve(req, res) {
   res.redirect(302, back.href);
 }
 
-module.exports = { createProvider, approve };

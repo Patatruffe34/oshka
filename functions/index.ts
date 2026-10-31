@@ -1,16 +1,20 @@
-const { onRequest } = require("firebase-functions/v2/https");
-const { getAuth } = require("firebase-admin/auth");
-const { getFirestore } = require("firebase-admin/firestore");
-const { defineSecret } = require("firebase-functions/params");
+import { onRequest } from "firebase-functions/v2/https";
+import { getAuth } from "firebase-admin/auth";
+import { getFirestore } from "firebase-admin/firestore";
+import { defineSecret } from "firebase-functions/params";
+import { initializeApp } from "firebase-admin/app";
 
-const { initializeApp } = require("firebase-admin/app");
+import { createGmailApp } from "./gmail/app";
+import { createGmailStore } from "./gmail/store";
+import { app as mcpApp } from "./mcp";
+import { createSlackApp } from "./slack/app";
+import { createStore } from "./slack/store";
+
 initializeApp();
 
 // Gmail's Apps Script module uses an Inbox-only credential, not Gmail OAuth
 // tokens. Gmail permissions remain inside the user's Google account.
-const { createGmailApp } = require("./gmail/app");
-const { createGmailStore } = require("./gmail/store");
-exports.gmail = onRequest(
+export const gmail = onRequest(
   { region: "europe-west1", memory: "256MiB", maxInstances: 5 },
   createGmailApp({
     verifyIdToken: (token) => getAuth().verifyIdToken(token),
@@ -19,16 +23,14 @@ exports.gmail = onRequest(
 );
 
 // ── MCP server: the boards, for Claude, Codex and other MCP clients ──
-exports.mcp = onRequest(
+export const mcp = onRequest(
   { region: "europe-west1", memory: "256MiB", maxInstances: 5 },
-  require("./mcp").app
+  mcpApp
 );
 
 const slackSigningSecret = defineSecret("OSHKA_SLACK_SIGNING_SECRET");
 const slackBotToken = defineSecret("OSHKA_SLACK_BOT_TOKEN");
-const { createSlackApp } = require("./slack/app");
-const { createStore } = require("./slack/store");
-exports.slack = onRequest(
+export const slack = onRequest(
   { region: "europe-west1", memory: "256MiB", maxInstances: 5, secrets: [slackSigningSecret, slackBotToken] },
   createSlackApp({
     signingSecret: () => slackSigningSecret.value(), botToken: () => slackBotToken.value(),

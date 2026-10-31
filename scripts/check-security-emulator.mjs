@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createRequire } from "node:module";
+import { createRequire, registerHooks } from "node:module";
 import { initializeApp, deleteApp } from "firebase/app";
 import { getAuth, connectAuthEmulator, createUserWithEmailAndPassword } from "firebase/auth";
 import { initializeFirestore, connectFirestoreEmulator, doc, setDoc, getDoc, runTransaction, terminate } from "firebase/firestore";
@@ -10,6 +10,18 @@ assert.equal(process.env.GCLOUD_PROJECT, "demo-oshka");
 assert.match(process.env.FIRESTORE_EMULATOR_HOST || "", /^(127\.0\.0\.1|localhost):\d+$/);
 assert.match(process.env.FIREBASE_AUTH_EMULATOR_HOST || "", /^(127\.0\.0\.1|localhost):\d+$/);
 const require = createRequire(new URL("../functions/package.json", import.meta.url));
+// The Functions and src/lib import each other without extensions, as their
+// bundler allows; Node only finds those files once told to try ".ts".
+registerHooks({
+  resolve(specifier, context, nextResolve) {
+    try {
+      return nextResolve(specifier, context);
+    } catch (error) {
+      if (!specifier.startsWith(".") || error.code !== "ERR_MODULE_NOT_FOUND") throw error;
+      return nextResolve(`${specifier}.ts`, context);
+    }
+  },
+});
 const { initializeApp: initializeAdmin, deleteApp: deleteAdmin } = require("firebase-admin/app");
 const { getFirestore } = require("firebase-admin/firestore");
 const adminApp = initializeAdmin({ projectId: "demo-oshka" });
@@ -45,7 +57,7 @@ try {
   local.root.inbox.push({ id: "local", title: "Local draft", board: { columns: [] } });
   const adminRef = adminDb.collection("boards").doc(owner.uid);
   // A real server-side capture occurs after the client's base snapshot.
-  const { createGmailStore } = require("./gmail/store.js");
+  const { createGmailStore } = await import("../functions/gmail/store.ts");
   const gmail = createGmailStore(adminDb);
   const token = await gmail.connect(await gmail.createCode(owner.uid));
   const mail = { mailbox: "owner@oshka.test", messageId: "a123", threadId: "a123", title: "Gmail capture", sender: "sender", excerpt: "Synthetic test", sentAt: "", url: "https://mail.google.com/mail/#inbox/a123" };
@@ -61,7 +73,7 @@ try {
   await gmail.disconnect(owner.uid);
   await assert.rejects(gmail.capture(token, mail), { code: "not_connected" });
 
-  const { createProvider } = require("./mcp/oauth.js");
+  const { createProvider } = await import("../functions/mcp/oauth.ts");
   const provider = createProvider({ firebaseConfig: null });
   await assert.rejects(provider.clientsStore.registerClient({ client_id: "bad", redirect_uris: ["https://attacker.invalid/callback"] }));
   await provider.clientsStore.registerClient({ client_id: "local-test", redirect_uris: ["http://127.0.0.1:12345/callback"] });

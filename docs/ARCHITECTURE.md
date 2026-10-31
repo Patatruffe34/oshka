@@ -25,7 +25,7 @@ structure *is* the tree.
 Firestore enforces none of this, since it only sees a JSON string. The
 contract lives in `src/lib/types.ts`: the app, the MCP server and the capture
 integrations all write this shape, and the type checker holds the code in
-`src/lib` to it.
+`src/lib` and `functions/` to it.
 
 **Why a single document.** Text compresses well: a tree of several hundred
 cards stays at a few dozen kilobytes, far below the one-megabyte limit per
@@ -424,8 +424,10 @@ Claude Code, Codex — at `https://<project>.web.app/mcp`. A single function,
 `mcp` (europe-west1, next to Firestore), serves the protocol and OAuth.
 
 **The same rules as the app, through the same code.** The server does not
-rewrite the logic: `npm run build:functions` bundles `src/lib` as CommonJS
-(`functions/mcp/build/oshka.cjs`, generated before each deployment). Ticking a
+rewrite the logic: the Functions are TypeScript that imports `src/lib` and its
+types directly, and `npm run build:functions` bundles both into one CommonJS
+file (`functions/build/index.cjs`, the package's entry point, generated before
+each deployment); dependencies stay external. Ticking a
 repeating card, dropping into ✅, what "this week" means: everything goes
 through the functions the tests already cover. Default settings live in
 `src/lib/settings.ts` for the same reason. The server's time zone is set to
@@ -446,7 +448,7 @@ signed in only has to click "Authorize".
 
 **OAuth.** The server is its own authorisation server, backed by Firebase Auth.
 The MCP SDK's router carries the protocol (metadata, dynamic registration,
-PKCE, token exchange); `oauth.js` stores what it needs in Firestore:
+PKCE, token exchange); `oauth.ts` stores what it needs in Firestore:
 
 | Collection | Content | Lifetime |
 |---|---|---|

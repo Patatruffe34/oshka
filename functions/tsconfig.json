@@ -1,0 +1,23 @@
+{
+  // Type checking only: vite.functions.config.js builds what runs.
+  // Node, not the browser: no DOM types, and the modules from src/lib the
+  // Functions import are checked again against this environment.
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "types": ["node"],
+    "noEmit": true,
+    "strict": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitOverride": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    // The security check loads some of these files in Node directly
+    "erasableSyntaxOnly": true,
+    "skipLibCheck": true
+  },
+  "include": ["**/*.ts"],
+  "exclude": ["node_modules", "build"]
+}
