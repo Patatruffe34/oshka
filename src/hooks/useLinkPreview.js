@@ -1,57 +1,32 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 
 const URL_REGEX = /^https?:\/\/[^\s]+$/i;
-const cache = new Map();
+
 
 /**
  * Detects if a card title is a URL and fetches Open Graph preview data.
  * Uses microlink.io as a free OG metadata proxy.
  */
-export function useLinkPreview(title) {
+export function useLinkPreview(title, enabled = false) {
   const [preview, setPreview] = useState(null);
   const [loading, setLoading] = useState(false);
-  const abortRef = useRef(null);
 
   const url = title?.trim();
   const isUrl = url && URL_REGEX.test(url);
 
   useEffect(() => {
-    if (!isUrl) {
-      setPreview(null);
-      return;
-    }
-
-    // Check cache first
-    if (cache.has(url)) {
-      setPreview(cache.get(url));
-      return;
-    }
-
-    // Offline: show the bare domain without caching it, so the real preview
-    // is still fetched once the connection returns.
-    if (!navigator.onLine) {
-      setPreview({
-        title: null, description: null, image: null,
-        siteName: (() => { try { return new URL(url).hostname; } catch { return url; } })(),
-        url,
-      });
-      return;
-    }
-
-    setLoading(true);
-
-    // Abort previous request
-    if (abortRef.current) abortRef.current.abort();
+    if (!isUrl || !enabled || !navigator.onLine) return;
     const controller = new AbortController();
-    abortRef.current = controller;
 
     const fetchPreview = async () => {
+      setLoading(true);
       try {
         const res = await fetch(
           `https://api.microlink.io?url=${encodeURIComponent(url)}`,
           { signal: controller.signal }
         );
         const json = await res.json();
+        if (controller.signal.aborted) return;
 
         if (json.status === "success" && json.data) {
           const data = {
@@ -61,7 +36,7 @@ export function useLinkPreview(title) {
             siteName: json.data.publisher || new URL(url).hostname,
             url,
           };
-          cache.set(url, data);
+
           setPreview(data);
         } else {
           // Fallback: just show the domain
@@ -72,7 +47,7 @@ export function useLinkPreview(title) {
             siteName: new URL(url).hostname,
             url,
           };
-          cache.set(url, fallback);
+
           setPreview(fallback);
         }
       } catch (err) {
@@ -84,21 +59,22 @@ export function useLinkPreview(title) {
             siteName: (() => { try { return new URL(url).hostname; } catch { return url; } })(),
             url,
           };
-          cache.set(url, fallback);
+
           setPreview(fallback);
         }
       } finally {
-        setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       }
     };
 
+    // Only called after explicit consent for this exact URL.
     // Debounce fetch by 500ms
     const timer = setTimeout(fetchPreview, 500);
     return () => {
       clearTimeout(timer);
       controller.abort();
     };
-  }, [url, isUrl]);
+  }, [url, isUrl, enabled]);
 
-  return { isUrl, preview, loading };
+  return { isUrl, preview: enabled && preview?.url === url ? preview : null, loading: enabled && loading };
 }

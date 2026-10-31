@@ -1,11 +1,16 @@
-const VERSION = "oshka-v6";
+const VERSION = "oshka-v7";
 const SHELL = ["/", "/index.html", "/manifest.json", "/logo.svg", "/favicon.svg"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(
     caches.open(VERSION).then((cache) =>
       // A single missing file must not abort the whole install
-      Promise.allSettled(SHELL.map((url) => cache.add(url)))
+      Promise.allSettled(SHELL.map(async (url) => {
+        const response = await fetch(url, { cache: "reload" });
+        if (response.ok && !/no-store/i.test(response.headers.get("Cache-Control") || "")) {
+          await cache.put(url, response);
+        }
+      }))
     )
   );
   self.skipWaiting();
@@ -71,6 +76,12 @@ self.addEventListener("fetch", (e) => {
     return;
   }
 
+  // Cache only a closed list of public resources. OAuth, integration APIs,
+  // Firebase auth helpers and magic-link query strings never enter CacheStorage.
+  if (request.headers?.has("Authorization") || url.search ||
+      (!isHashedAsset(url) && !SHELL.includes(url.pathname) &&
+       !["/icon-192.png", "/icon-512.png"].includes(url.pathname))) return;
+
   if (isHashedAsset(url)) {
     // Cache first: the filename changes whenever the content does.
     e.respondWith(
@@ -79,7 +90,9 @@ self.addEventListener("fetch", (e) => {
           hit ||
           fetch(request).then((res) => {
             const clone = res.clone();
-            caches.open(VERSION).then((c) => c.put(request, clone));
+            if (res.ok && !/no-store/i.test(res.headers.get("Cache-Control") || "")) {
+              e.waitUntil(caches.open(VERSION).then((c) => c.put(request, clone)));
+            }
             return res;
           })
       )
@@ -102,7 +115,7 @@ self.addEventListener("fetch", (e) => {
         const forCache = res.clone();
         const forPrune = isDocument && res.ok ? res.clone() : null;
 
-        e.waitUntil(
+        if (res.ok && !/no-store/i.test(res.headers.get("Cache-Control") || "")) e.waitUntil(
           caches.open(VERSION).then(async (c) => {
             await c.put(request, forCache);
             // A fresh shell is the moment we learn which assets are current

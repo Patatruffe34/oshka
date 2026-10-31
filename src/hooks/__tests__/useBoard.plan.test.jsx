@@ -3,7 +3,7 @@ import { act, useLayoutEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const firestore = vi.hoisted(() => ({ getDoc: vi.fn(), setDoc: vi.fn(), onSnapshot: vi.fn(), doc: vi.fn(() => ({})) }));
+const firestore = vi.hoisted(() => ({ getDoc: vi.fn(), setDoc: vi.fn(), runTransaction: vi.fn(), onSnapshot: vi.fn(), doc: vi.fn(() => ({})) }));
 vi.mock("firebase/firestore", () => firestore);
 vi.mock("../../lib/firebase", () => ({ db: {} }));
 import { useBoard } from "../useBoard";
@@ -27,6 +27,15 @@ beforeEach(async () => {
       { id: "next", title: "Next", cards: [] },
     ] } }] },
   ] };
+  firestore.runTransaction.mockImplementation(async (_db, callback) => {
+    let written;
+    const result = await callback({ get: firestore.getDoc, set: (ref, data) => { written = [ref, data]; } });
+    if (written) {
+      await firestore.setDoc(...written);
+      firestore.getDoc.mockResolvedValue({ exists: () => true, data: () => written[1] });
+    }
+    return result;
+  });
   firestore.getDoc.mockResolvedValue({ exists: () => true, data: () => ({ boardJson: JSON.stringify(root) }) });
   firestore.onSnapshot.mockReturnValue(() => {}); firestore.setDoc.mockResolvedValue(undefined);
   host = document.createElement("div"); document.body.append(host); reactRoot = createRoot(host);

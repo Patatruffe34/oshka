@@ -95,7 +95,7 @@ sorting, label filter, starter templates, trash with restore, undo/redo.
 
 **Everywhere** — search across the whole tree, quick access, tabs to keep
 several boards open, light/dark theme, French and English, and real offline
-mode: writes are queued and sent again when the network comes back.
+mode: drafts are kept on the device and merged with the saved board when the network comes back. Conflicting edits stay local with an export and recovery option.
 
 **Inbox** — capture now, file later. A note typed into the Inbox, shared from
 your phone, sent from Gmail or Slack or added by an assistant waits there until
@@ -205,8 +205,13 @@ mobile app. How it works is described in
 
 ## Getting started
 
+Requires Node.js 22.12 or newer within Node 22, npm and Python 3 (for the shortcut export tests). Install
+the Firebase CLI to deploy; the security integration checks also need Java 21.
+
+
 ```bash
-npm install
+npm ci
+npm --prefix functions ci
 ```
 
 Copy `.env.example` to `.env` and fill in the values from the Firebase console
@@ -230,13 +235,50 @@ npm run dev
 | Command | |
 |---|---|
 | `npm run dev` | development server |
-| `npm test` | the test suite |
+| `npm test` | builds the shared Functions bundle, then runs the test suite |
 | `npm run test:watch` | tests in watch mode |
 | `npm run lint` | ESLint |
 | `npm run build` | production build |
 | `firebase deploy --only hosting` | deploy the app |
 | `firebase deploy --only functions:mcp,hosting,firestore` | deploy the MCP server (and the rewrites that serve it) |
 | `npm run seed:local` | test account and board in the emulators |
+
+The two lockfiles are committed: use `npm ci` in both directories. Tests build
+`functions/mcp/build/oshka.cjs` automatically; do not commit generated bundles.
+The Firebase client currently pins an older gRPC line, so `package.json` overrides
+`@grpc/grpc-js` within `@firebase/firestore` to a patched compatible 1.x release.
+ESLint uses a patched `minimatch` 11 override; the Functions tree overrides
+`rimraf`'s `glob` with the patched 14.x API. These temporary overrides address
+GHSA-g3hv-75wg-m249 and GHSA-3g3m-2fjr-6pw4 while upstream packages update
+their version ranges. Recheck them when updating ESLint or Firebase.
+The lint, tests and emulator checks exercise these dependency trees as well
+as Firestore access rules.
+
+```bash
+npm run lint
+npm test
+npm run build
+npx --yes firebase-tools@15.34.1 emulators:exec --only auth,firestore --project demo-oshka 'node scripts/check-security-emulator.mjs'
+```
+
+GitHub Actions runs these checks and audits both dependency trees. See
+[SECURITY.md](SECURITY.md) for private vulnerability reporting and deployment
+security. Existing public commits and repository URLs remain valid; fixes are
+published as new commits.
+
+### Privacy and recovery
+
+URL cards show a **Load preview** button. Only clicking it sends the complete
+URL to Microlink; a new URL needs a new click. Avoid loading previews of signed
+or confidential links.
+
+Independent changes from other devices and integrations merge during saving.
+If two changes conflict, neither is silently overwritten: the app keeps your
+local draft and offers a backup export. After exporting, **Use saved version**
+lets you discard the conflicting local draft explicitly. Drafts survive reload
+and sign-out, are scoped to the account and browser tab, and can be recovered
+from other tabs after signing back into the same account. Keep the tab open and
+export if the browser reports that local storage is unavailable.
 
 ### Testing without touching production
 

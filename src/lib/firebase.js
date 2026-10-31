@@ -5,7 +5,7 @@ import {
   connectFirestoreEmulator,
   memoryLocalCache,
   persistentLocalCache,
-  persistentSingleTabManager,
+  persistentMultipleTabManager,
 } from "firebase/firestore";
 
 /*
@@ -32,12 +32,13 @@ const firebaseConfig = EMULATORS
 
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
-// Enable IndexedDB persistence — writes survive page close / refresh
+// Share the offline read cache across tabs. useBoard persists pending edits
+// separately because Firestore transactions require an online connection.
 export const db = initializeFirestore(app, {
   localCache: EMULATORS
     ? memoryLocalCache()
     : persistentLocalCache({
-        tabManager: persistentSingleTabManager({ forceOwnership: true }),
+        tabManager: persistentMultipleTabManager(),
       }),
 });
 

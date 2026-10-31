@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { doc, getDoc, setDoc, onSnapshot } from "firebase/firestore";
+import { doc, getDoc, runTransaction, onSnapshot } from "firebase/firestore";
+import { mergeBoardState, boardStateEqual, encodeBoard, draftStore } from "../lib/board-sync";
 import { db } from "../lib/firebase";
 import {
   getBoardAtPath,
@@ -97,8 +98,10 @@ export function useBoard(userId) {
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [navigating, setNavigating] = useState(false);
   const [saving, setSaving] = useState(false);
-  const saveTimeout = useRef(null);
-  const unsubRef = useRef(null);
+  const [saveError, setSaveError] = useState(null);
+  const [recoveryDrafts, setRecoveryDrafts] = useState([]);
+  const sessionRef = useRef(null);
+  const delayed = useRef(new Set());
 
   // Keep latest state in refs for async access (saves, flush, onSnapshot guard).
   // Synced in an effect so nothing writes to a ref during render; effects run
@@ -116,12 +119,6 @@ export function useBoard(userId) {
 
   // Flag: when true, the next render will schedule a Firestore save
   const needsSave = useRef(false);
-  // True from the first local edit until that edit has landed in Firestore.
-  // While dirty, incoming snapshots are ignored so they can't clobber typing.
-  const dirty = useRef(false);
-  // Payload of our own last write, to recognise (and skip) its snapshot echo.
-  const lastWrittenJson = useRef(null);
-
   // ── Undo / redo ──
   // Snapshots of {root, trash} taken before each mutation. The whole tree lives
   // in memory anyway, so keeping a few dozen copies of it costs little.
@@ -131,130 +128,208 @@ export function useBoard(userId) {
   const [historySize, setHistorySize] = useState({ undo: 0, redo: 0 });
   const [lastUndone, setLastUndone] = useState(null);
 
-  // ── Firestore serialization helpers ──
-  // Board & trash are stored as JSON strings to avoid Firestore's 20-level nesting limit
-  const serialize = (root, favs, trash, settings) => ({
-    boardJson: JSON.stringify(root),
-    trashJson: JSON.stringify(trash),
-    favorites: favs,
-    settings,
-    updatedAt: new Date(),
-  });
-
-  const deserialize = (data) => {
-    // Support both old format (nested object) and new format (JSON string)
-    const board = data.boardJson ? JSON.parse(data.boardJson) : data.board;
-    // Boards saved before labels existed get the default set on first read
-    if (board && !board.labels) board.labels = makeDefaultLabels();
-    const trash = data.trashJson ? JSON.parse(data.trashJson) : (data.trash || []);
-    const favs = data.favorites || [];
-    const settings = { ...DEFAULT_SETTINGS, ...(data.settings || {}) };
-    return { board, trash, favs, settings };
-  };
-
-  // ── Load from Firestore and subscribe ──
+  // A session owns its draft, transaction and callbacks. Closing one account
+  // cannot complete a read or schedule a write against the next account.
   useEffect(() => {
-    if (!userId) return;
-
+    const session = { active: true, loaded: false, dirty: false, inFlight: false, base: null, latest: null, timer: null, snapshotVersion: 0 };
+    sessionRef.current = session;
+    needsSave.current = false;
+    const resetHistory = () => {
+      past.current = []; future.current = [];
+      lastSnapshot.current = { label: null, at: 0 };
+      setHistorySize({ undo: 0, redo: 0 }); setLastUndone(null);
+    };
+    const apply = (state) => {
+      rootRef.current = state.root; favRef.current = state.favorites;
+      trashRef.current = state.trash; settingsRef.current = state.settings;
+      setRoot(state.root); setFavorites(state.favorites); setTrash(state.trash); setSettings(state.settings);
+      session.latest = state;
+    };
+    const legacyLabels = makeDefaultLabels().map((label) => ({ ...label, id: `default-${label.color}` }));
+    const empty = () => ({ root: { ...EMPTY_BOARD, labels: makeDefaultLabels(), inbox: [] }, trash: [], favorites: [], settings: { ...DEFAULT_SETTINGS } });
+    const decode = (data) => {
+      const root = data.boardJson ? JSON.parse(data.boardJson) : data.board;
+      if (!root || !Array.isArray(root.columns)) throw new Error("invalid-board");
+      return { root: { ...root, inbox: root.inbox || [], labels: root.labels || legacyLabels },
+        trash: data.trashJson ? JSON.parse(data.trashJson) : (data.trash || []),
+        favorites: data.favorites || [], settings: { ...DEFAULT_SETTINGS, ...data.settings } };
+    };
+    // Account changes are an external security boundary: discard the previous session before loading.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    apply({ ...empty(), root: null }); resetHistory(); setSaving(false); setSaveError(null); setRecoveryDrafts([]);
+    setPath([]);
+    if (!userId) return () => { session.active = false; };
+    const drafts = draftStore(userId);
     const docRef = doc(db, "boards", userId);
-
-    getDoc(docRef).then((snap) => {
-      if (snap.exists()) {
-        const { board, trash, favs, settings } = deserialize(snap.data());
-        setRoot(board);
-        setFavorites(favs);
-        setTrash(trash);
-        setSettings(settings);
-      } else {
-        const board = { ...EMPTY_BOARD, labels: makeDefaultLabels() };
-        setDoc(docRef, serialize(board, [], [], DEFAULT_SETTINGS));
-        setRoot(board);
+    const errorCode = (error) => error.code === "conflict" ? "conflict" : error.code === "too-large" ? "too-large" : "failed";
+    session.persist = () => {
+      if (!session.loaded || !session.dirty) return;
+      try { drafts.write({ base: session.base, local: session.latest, savedAt: new Date().toISOString() }); return true; }
+      catch { if (session.active) setSaveError("storage"); return false; }
+    };
+    const refresh = () => {
+      const version = session.snapshotVersion;
+      getDoc(docRef).then((snap) => {
+        // A read started before a newer live snapshot must not rewind it.
+        if (session.active && version === session.snapshotVersion) receive(snap);
+      }).catch(() => { if (session.active) setSaveError("failed"); });
+    };
+    session.flush = async () => {
+      clearTimeout(session.timer); session.timer = null;
+      if (!session.active || !session.loaded || !session.dirty || session.inFlight) return;
+      const stored = session.persist();
+      if (!navigator.onLine) { if (stored) setSaveError("offline"); return; }
+      const submitted = session.latest, base = session.base;
+      session.inFlight = true; setSaving(true);
+      try {
+        const committed = await runTransaction(db, async (tx) => {
+          const snap = await tx.get(docRef);
+          if (!session.active) throw new Error("closed-session");
+          // Deletion of an existing remote board is a conflict, not permission
+          // to resurrect an entire stale tree.
+          if (!snap.exists() && base !== null) throw Object.assign(new Error("conflict"), { code: "conflict" });
+          const remote = snap.exists() ? decode(snap.data()) : null;
+          const initial = { root: { ...EMPTY_BOARD, inbox: [], labels: submitted.root.labels }, trash: [], favorites: [], settings: { ...DEFAULT_SETTINGS } };
+          const result = base === null ? (remote ? mergeBoardState(initial, submitted, remote) : submitted) : mergeBoardState(base, submitted, remote);
+          tx.set(docRef, encodeBoard(result), { merge: true });
+          return result;
+        });
+        if (!session.active) return;
+        // Typing may continue while the transaction is awaiting the server.
+        const latest = mergeBoardState(submitted, session.latest, committed);
+        if (!boardStateEqual(committed, submitted)) resetHistory();
+        session.base = committed;
+        session.dirty = !boardStateEqual(latest, committed);
+        apply(latest);
+        setSaveError(null);
+        if (session.dirty) { session.persist(); session.timer = setTimeout(session.flush, 300); }
+        else { try { drafts.clear(); } catch { /* Saving succeeded; a leftover draft is harmless. */ } }
+      } catch (error) {
+        if (session.active) { setSaveError(errorCode(error)); session.persist(); }
+      } finally {
+        session.inFlight = false;
+        if (session.active) {
+          setSaving(false);
+          // A capture can arrive after the commit but before its promise
+          // settles. Re-read once, instead of dropping that notification.
+          if (!session.dirty && session.refreshNeeded) { session.refreshNeeded = false; refresh(); }
+        }
       }
+    };
+    session.retry = () => session.loaded ? session.flush() : refresh();
+    session.schedule = () => {
+      session.persist(); clearTimeout(session.timer);
+      session.timer = setTimeout(session.flush, 300);
+    };
+    session.export = () => {
+      const blob = new Blob([JSON.stringify({ ...session.latest, otherDrafts: drafts.others() }, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob), a = document.createElement("a");
+      a.href = url; a.download = "oshka-backup.json"; a.click(); URL.revokeObjectURL(url);
+    };
+    session.reload = async () => {
+      if (session.inFlight || !navigator.onLine) return;
+      const beforeReload = session.latest;
+      try {
+        const remote = await runTransaction(db, async (tx) => {
+          const snap = await tx.get(docRef);
+          if (!snap.exists()) throw new Error("missing-board");
+          return decode(snap.data());
+        });
+        if (!session.active) return;
+        if (session.latest !== beforeReload) { setSaveError("conflict"); return; }
+        clearTimeout(session.timer); session.base = remote; session.dirty = false;
+        needsSave.current = false; apply(remote); resetHistory(); drafts.clear(); setSaveError(null);
+      } catch { if (session.active) setSaveError("failed"); }
+    };
+    session.recover = (draft) => {
+      // Other tabs' drafts are never deleted here. A merge is idempotent when
+      // the originating tab has already saved the same changes.
+      try {
+        const recovered = mergeBoardState(draft.base, draft.local, session.latest);
+        apply(recovered); session.dirty = true; resetHistory(); session.schedule();
+      } catch { setSaveError("conflict"); }
+    };
+    const receive = (snap) => {
+      session.snapshotVersion++;
+      if (!session.active) return;
+      if (session.dirty || session.inFlight) { session.refreshNeeded = true; return; }
+      try {
+        if (!snap.exists()) {
+          // Never create from an offline cache miss.
+          if (snap.metadata?.fromCache) return;
+          if (session.loaded) { setSaveError("conflict"); return; }
+        }
+        const remote = snap.exists() ? decode(snap.data()) : null;
+        if (!session.loaded) {
+          const draft = drafts.read();
+          session.loaded = true;
+          session.base = draft ? draft.base : remote;
+          session.dirty = Boolean(draft) || !remote;
+          apply(draft ? draft.local : (remote || empty()));
+          setRecoveryDrafts(drafts.others());
+          if (session.dirty) session.schedule();
+        } else if (!boardStateEqual(remote, session.base)) {
+          session.base = remote; apply(remote); resetHistory();
+        }
+        if (!session.dirty) setSaveError(null);
+      } catch { setSaveError("failed"); }
+    };
+    const ownDraft = drafts.read();
+    if (ownDraft?.local?.root && Array.isArray(ownDraft.local.root.columns)) {
+      session.loaded = true; session.base = ownDraft.base; session.dirty = true;
+      apply(ownDraft.local); setRecoveryDrafts(drafts.others()); session.schedule();
+    }
+    // Keep getDoc for the initial load, but do not let it rewind a newer live
+    // snapshot or a user edit that has already arrived.
+    getDoc(docRef).then((snap) => { if (!session.loaded) receive(snap); }).catch(() => {
+      if (session.active && !session.loaded) setSaveError("failed");
     });
-
-    // Real-time sync across tabs and devices
-    unsubRef.current = onSnapshot(docRef, (snap) => {
-      if (!snap.exists()) return;
-      // Local edits in flight always win — never overwrite what is being typed.
-      if (dirty.current) return;
-      const data = snap.data();
-      // Our own write coming back: nothing new to apply.
-      if (data.boardJson === lastWrittenJson.current) return;
-      const { board, trash, favs, settings } = deserialize(data);
-      setRoot(board);
-      setFavorites(favs);
-      setTrash(trash);
-      setSettings(settings);
-    });
-
+    const unsubscribe = onSnapshot(docRef, receive, () => { if (session.active) setSaveError("failed"); });
+    const onVisibility = () => { if (document.visibilityState === "hidden") { session.persist(); session.flush(); } };
+    const onUnload = (event) => {
+      session.persist();
+      if (session.dirty) { event.preventDefault(); event.returnValue = ""; }
+    };
+    window.addEventListener("online", session.flush);
+    window.addEventListener("beforeunload", onUnload);
+    document.addEventListener("visibilitychange", onVisibility);
+    const timers = delayed.current;
     return () => {
-      if (unsubRef.current) unsubRef.current();
+      session.persist(); session.active = false;
+      clearTimeout(session.timer); timers.forEach(clearTimeout); timers.clear(); unsubscribe();
+      window.removeEventListener("online", session.flush);
+      window.removeEventListener("beforeunload", onUnload);
+      document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [userId]);
 
-  // ── Debounced save — triggered AFTER render via useEffect ──
-  const doSave = useCallback(() => {
-    if (!userId) return;
-    if (saveTimeout.current) clearTimeout(saveTimeout.current);
-    saveTimeout.current = setTimeout(async () => {
-      setSaving(true);
-      const payload = serialize(
-        rootRef.current, favRef.current, trashRef.current, settingsRef.current
-      );
-      try {
-        await setDoc(doc(db, "boards", userId), payload);
-        lastWrittenJson.current = payload.boardJson;
-      } catch (err) {
-        console.error("Save failed:", err);
-      }
-      saveTimeout.current = null;
-      setSaving(false);
-      // Only clear the dirty flag if nothing new was typed while we saved.
-      if (!needsSave.current) dirty.current = false;
-    }, 300);
-  }, [userId]);
-
-  // After every render, if a local mutation flagged needsSave, trigger the save
   useEffect(() => {
-    if (needsSave.current) {
+    const session = sessionRef.current;
+    if (needsSave.current && session?.active && session.loaded) {
       needsSave.current = false;
-      doSave();
+      session.latest = { root: rootRef.current, favorites: favRef.current, trash: trashRef.current, settings: settingsRef.current };
+      session.schedule();
     }
   });
 
-  // Flush pending save on page close / tab switch
-  useEffect(() => {
-    if (!userId) return;
-    const flush = () => {
-      if (!saveTimeout.current && !needsSave.current) return;
-      clearTimeout(saveTimeout.current);
-      saveTimeout.current = null;
-      needsSave.current = false;
-      const payload = serialize(
-        rootRef.current, favRef.current, trashRef.current, settingsRef.current
-      );
-      lastWrittenJson.current = payload.boardJson;
-      // Firestore's local cache persists this write and replays it on reload,
-      // so we do not need to await it here.
-      setDoc(doc(db, "boards", userId), payload).catch(() => {});
-      dirty.current = false;
-    };
-    const onVisChange = () => {
-      if (document.visibilityState === "hidden") flush();
-    };
-    window.addEventListener("beforeunload", flush);
-    document.addEventListener("visibilitychange", onVisChange);
-    return () => {
-      window.removeEventListener("beforeunload", flush);
-      document.removeEventListener("visibilitychange", onVisChange);
-    };
-  }, [userId]);
-
-  /** Mark local state as changed and queue a save */
   const touch = () => {
-    dirty.current = true;
+    const session = sessionRef.current;
+    if (!session?.active || !session.loaded) return;
+    session.dirty = true;
     needsSave.current = true;
   };
+  const later = (action, delay) => {
+    const session = sessionRef.current;
+    const timer = setTimeout(() => {
+      delayed.current.delete(timer);
+      if (session?.active) action();
+    }, delay);
+    delayed.current.add(timer);
+  };
+  const retrySave = () => sessionRef.current?.retry?.();
+  const exportBackup = () => sessionRef.current?.export?.();
+  const reloadSaved = () => sessionRef.current?.reload?.();
+  const recoverDraft = (draft) => sessionRef.current?.recover?.(draft);
 
   /**
    * Record the state about to change.
@@ -287,8 +362,7 @@ export function useBoard(userId) {
     setRoot(entry.root);
     setTrash(entry.trash);
     lastSnapshot.current = { label: null, at: 0 };
-    dirty.current = true;
-    needsSave.current = true;
+    touch();
   }, []);
 
   const undo = useCallback(() => {
@@ -388,13 +462,13 @@ export function useBoard(userId) {
       if (state && Array.isArray(state.path) && root) {
         const resolved = resolvePathFromIds(root, state.path);
         setNavigating(true);
-        setTimeout(() => {
+        later(() => {
           setPath(resolved);
           setNavigating(false);
         }, 120);
       } else {
         setNavigating(true);
-        setTimeout(() => {
+        later(() => {
           setPath([]);
           setNavigating(false);
         }, 120);
@@ -408,7 +482,7 @@ export function useBoard(userId) {
   const navigate = useCallback((newPath) => {
     setNavigating(true);
     const segments = newPath.map((p) => ({ colId: p.colId, cardId: p.cardId }));
-    setTimeout(() => {
+    later(() => {
       setPath(newPath);
       setNavigating(false);
       window.history.pushState({ path: segments }, "");
@@ -689,7 +763,7 @@ export function useBoard(userId) {
       if (becomingDone && settingsRef.current.autoArchiveDone) {
         // The card may have just changed column — archive it where it landed
         const landed = filing ? board.columns.find(isDoneColumn).id : colId;
-        setTimeout(() => setCardArchived(landed, cardId, true, segments), AUTO_ARCHIVE_DELAY);
+        later(() => setCardArchived(landed, cardId, true, segments), AUTO_ARCHIVE_DELAY);
       }
       return becomingDone ? "done" : false;
     },
@@ -838,7 +912,7 @@ export function useBoard(userId) {
       }, "reorder_cards");
 
       if (finishing && !rolling && settingsRef.current.autoArchiveDone) {
-        setTimeout(() => setCardArchived(destColId, moved.id, true), AUTO_ARCHIVE_DELAY);
+        later(() => setCardArchived(destColId, moved.id, true), AUTO_ARCHIVE_DELAY);
       }
       // Dropping in ✅ finishes a card as surely as ticking it, so the caller
       // gets told — it is the same offer to make about what is inside.
@@ -1315,6 +1389,12 @@ export function useBoard(userId) {
     path,
     navigating,
     saving,
+    saveError,
+    retrySave,
+    reloadSaved,
+    exportBackup,
+    recoveryDrafts,
+    recoverDraft,
     currentBoard,
     navigate,
     enterCard,

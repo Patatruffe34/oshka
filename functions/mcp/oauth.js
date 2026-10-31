@@ -1,5 +1,6 @@
 const crypto = require("node:crypto");
-const admin = require("firebase-admin");
+const { getAuth } = require("firebase-admin/auth");
+const { getFirestore } = require("firebase-admin/firestore");
 const {
   InvalidClientMetadataError,
   InvalidGrantError,
@@ -42,7 +43,7 @@ const allowedRedirect = (uri) => {
   }
 };
 
-const db = () => admin.firestore();
+const db = () => getFirestore();
 const col = (name) => db().collection(name);
 const hash = (secret) => crypto.createHash("sha256").update(secret).digest("hex");
 const newSecret = () => crypto.randomBytes(32).toString("base64url");
@@ -187,7 +188,7 @@ async function approve(req, res) {
   } else {
     let user;
     try {
-      user = await admin.auth().verifyIdToken(String(id_token));
+      user = await getAuth().verifyIdToken(String(id_token));
     } catch {
       res.status(401).type("text").send("Sign-in could not be verified. Go back and try again.");
       return;

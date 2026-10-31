@@ -760,6 +760,13 @@ body {
   transition: border-color 0.15s;
 }
 
+.link-preview > .btn-ghost-sm {
+  width: 100%;
+  white-space: normal;
+  height: auto;
+  text-align: left;
+}
+
 .link-preview:hover {
   border-color: var(--border2);
 }
@@ -5620,3 +5627,6 @@ body {
   .connections-destination { flex-wrap: wrap; }
   .connections-destination p { margin-left: 36px; max-width: none; flex-basis: 100%; }
 }
+
+.sync-notice { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 16px; background: var(--surface, #fff); color: var(--text, #222); border-bottom: 1px solid currentColor; font-size: 13px; }
+.sync-notice button { font: inherit; cursor: pointer; padding: 4px 8px; }

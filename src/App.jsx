@@ -44,21 +44,20 @@ import { clearPendingShare } from "./lib/share-target";
 import "./styles/app.css";
 
 export default function App({ initialShare = null }) {
+  const authState = useAuth();
   const [pendingShare, setPendingShare] = useState(initialShare);
+  // All account-owned React state (including dialogs and undo) is discarded
+  // synchronously when Firebase changes users. The pending share is explicit
+  // user input and intentionally survives sign-in.
+  return <Workspace key={authState.user?.uid || "signed-out"} authState={authState}
+    pendingShare={pendingShare} setPendingShare={setPendingShare} />;
+}
+
+function Workspace({ authState, pendingShare, setPendingShare }) {
   useMobileKeyboard();
   const { t } = useI18n();
-  const {
-    user,
-    loading,
-    sending,
-    error,
-    sendMagicLink,
-    signInWithPassword,
-    signUpWithPassword,
-    confirmEmail,
-    needsEmailConfirm,
-    logout,
-  } = useAuth();
+  const { user, loading, sending, error, sendMagicLink, signInWithPassword,
+    signUpWithPassword, confirmEmail, needsEmailConfirm, logout } = authState;
   const { theme, toggle: toggleTheme } = useTheme();
   const online = useOnline();
   const compact = useMediaQuery("(max-width: 640px)");
@@ -70,6 +69,7 @@ export default function App({ initialShare = null }) {
     path,
     navigating,
     saving,
+    saveError, retrySave, reloadSaved, exportBackup, recoveryDrafts, recoverDraft,
     currentBoard,
     navigate,
     enterCard,
@@ -542,6 +542,17 @@ export default function App({ initialShare = null }) {
         draggable onAdd={captureInbox} onEdit={renameInbox} onFile={fileInbox} onDelete={deleteInbox}
         onClose={() => setInboxOpen(false)} onUndo={undo} canUndo={canUndo} />
     <div className="app">
+      {saveError && <div className="sync-notice" role="alert">
+        <span>{t(`sync.${saveError}`)}</span>
+        <button onClick={retrySave}>{t("sync.retry")}</button>
+        {saveError === "conflict" && <button onClick={() => { if (window.confirm(t("sync.discard_confirm"))) reloadSaved(); }}>{t("sync.use_saved")}</button>}
+        <button onClick={exportBackup}>{t("sync.export")}</button>
+      </div>}
+      {recoveryDrafts?.length > 0 && <div className="sync-notice" role="status">
+        <span>{t("sync.recovery")}</span>
+        {recoveryDrafts.map((draft) => <button key={draft.key} onClick={() => recoverDraft(draft)}>{t("sync.recover")} {draft.savedAt}</button>)}
+        <button onClick={exportBackup}>{t("sync.export")}</button>
+      </div>}
       <Header
         path={showingWeek ? [] : resolveTab(path)}
         pageTitle={showingWeek ? t("week.title") : null}
