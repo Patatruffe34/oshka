@@ -169,8 +169,8 @@ function Workspace({ authState, pendingShare, setPendingShare }: WorkspaceProps)
     deleteInbox,
   } = useBoard(user?.uid);
 
-  const archives = useMemo(() => archiveSummary(root ?? undefined), [root]);
-  const completedCount = useMemo(() => completedCardCount(root ?? undefined), [root]);
+  const archives = useMemo(() => archiveSummary(root), [root]);
+  const completedCount = useMemo(() => completedCardCount(root), [root]);
 
   /* Ids in, live path out — a tab never carries a title of its own */
   const resolveTab = useCallback(
