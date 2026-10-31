@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { doc, getDoc, runTransaction, onSnapshot } from "firebase/firestore";
-import { mergeBoardState, boardStateEqual, encodeBoard, draftStore } from "../lib/board-sync";
+import { doc, getDoc, runTransaction, onSnapshot, type DocumentData, type DocumentSnapshot } from "firebase/firestore";
+import { mergeBoardState, boardStateEqual, encodeBoard, draftStore, type Draft } from "../lib/board-sync";
 import { db } from "../lib/firebase";
 import {
   getBoardAtPath,
@@ -36,6 +36,25 @@ import { isRepeating, nextOccurrence, rollCardOver, normalizeRepeat } from "../l
 import { archiveCompletedCards, purgeArchivedCards } from "../lib/archives";
 import { captureInboxCard, editInboxCard, updateInboxCard, fileInboxCard, inboxCards, removeInboxCard, moveCardIntoInbox, reorderInboxCards } from "../lib/inbox";
 import { DEFAULT_SETTINGS } from "../lib/settings";
+import type {
+  Board,
+  BoardState,
+  Card,
+  CardTrashItem,
+  Checklist,
+  ColumnTrashItem,
+  Favorite,
+  Id,
+  IsoDay,
+  Label,
+  PathSegment,
+  Repeat,
+  RootBoard,
+  Settings,
+  TitledSegment,
+  TrashItem,
+} from "../lib/types";
+import type { RankEntry } from "../lib/board-utils";
 
 export { DEFAULT_SETTINGS };
 
@@ -49,20 +68,71 @@ const COALESCE_MS = 700;
 /** Passed by callers that already recorded their own snapshot */
 const SKIP_SNAPSHOT = Symbol("skip");
 
+/** What a mutation does to the board it lands on */
+type Updater = (board: Board) => Board;
+
+/** A snapshot label, or the marker for "already recorded" */
+type SnapshotLabel = string | typeof SKIP_SNAPSHOT | undefined;
+
+/** The state before a mutation, as the undo stack keeps it */
+interface HistoryEntry {
+  root: RootBoard | null;
+  trash: TrashItem[];
+  label: string | null | undefined;
+}
+
+/** A trash entry before it is stamped; the path defaults to where we stand */
+type TrashPayload =
+  | (Omit<CardTrashItem, "id" | "deletedAt" | "path"> & { path?: TitledSegment[] })
+  | (Omit<ColumnTrashItem, "id" | "deletedAt" | "path"> & { path?: TitledSegment[] });
+
+/** Loaded state, or the empty shell held while an account loads */
+type HeldState = Omit<BoardState, "root"> & { root: RootBoard | null };
+
+export type SaveError = "conflict" | "too-large" | "failed" | "offline" | "storage";
+
+/**
+ * One account's connection to its document.
+ *
+ * The methods are replaced once the account is known; until then they do
+ * nothing, which is also what they do for a signed-out session.
+ */
+interface Session {
+  active: boolean;
+  loaded: boolean;
+  /** Edits not yet committed */
+  dirty: boolean;
+  inFlight: boolean;
+  /** The last state known to be on the server, edits are merged against it */
+  base: BoardState | null;
+  latest: HeldState | null;
+  timer: ReturnType<typeof setTimeout> | null;
+  snapshotVersion: number;
+  /** A remote change arrived while saving, read it once that is done */
+  refreshNeeded?: boolean;
+  persist: () => boolean | undefined;
+  flush: () => Promise<void>;
+  retry: () => void;
+  schedule: () => void;
+  export: () => void;
+  reload: () => Promise<void>;
+  recover: (draft: Draft) => void;
+}
+
 /** Encode path as URL hash: #col1:card1/col2:card2 */
-function pathToHash(path) {
+function pathToHash(path: PathSegment[]): string {
   if (path.length === 0) return "";
   return "#" + path.map((p) => `${p.colId}:${p.cardId}`).join("/");
 }
 
 /** Parse a hash string into [{colId, cardId}] segments */
-function parseHash(hash) {
+function parseHash(hash: string): PathSegment[] {
   const raw = hash.replace(/^#/, "");
   if (!raw) return [];
-  return raw.split("/").map((s) => {
+  return raw.split("/").flatMap((s) => {
     const [colId, cardId] = s.split(":");
-    return colId && cardId ? { colId, cardId } : null;
-  }).filter(Boolean);
+    return colId && cardId ? [{ colId, cardId }] : [];
+  });
 }
 
 // Capture the initial hash immediately at module load (before any React effects run)
@@ -77,7 +147,7 @@ const INITIAL_HASH_SEGMENTS = parseHash(window.location.hash);
  */
 const LAST_PATH_KEY = "oshka_last_path";
 
-const readLastPath = () => {
+const readLastPath = (): PathSegment[] => {
   try {
     const raw = localStorage.getItem(LAST_PATH_KEY);
     const parsed = raw ? JSON.parse(raw) : null;
@@ -90,18 +160,18 @@ const readLastPath = () => {
 const INITIAL_SEGMENTS =
   INITIAL_HASH_SEGMENTS.length > 0 ? INITIAL_HASH_SEGMENTS : readLastPath();
 
-export function useBoard(userId) {
-  const [root, setRoot] = useState(null);
-  const [path, setPath] = useState([]);
-  const [favorites, setFavorites] = useState([]);
-  const [trash, setTrash] = useState([]);
-  const [settings, setSettings] = useState(DEFAULT_SETTINGS);
+export function useBoard(userId: string | null | undefined) {
+  const [root, setRoot] = useState<RootBoard | null>(null);
+  const [path, setPath] = useState<TitledSegment[]>([]);
+  const [favorites, setFavorites] = useState<Favorite[]>([]);
+  const [trash, setTrash] = useState<TrashItem[]>([]);
+  const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [navigating, setNavigating] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState(null);
-  const [recoveryDrafts, setRecoveryDrafts] = useState([]);
-  const sessionRef = useRef(null);
-  const delayed = useRef(new Set());
+  const [saveError, setSaveError] = useState<SaveError | null>(null);
+  const [recoveryDrafts, setRecoveryDrafts] = useState<(Draft & { key: string })[]>([]);
+  const sessionRef = useRef<Session | null>(null);
+  const delayed = useRef(new Set<ReturnType<typeof setTimeout>>());
 
   // Keep latest state in refs for async access (saves, flush, onSnapshot guard).
   // Synced in an effect so nothing writes to a ref during render; effects run
@@ -122,16 +192,24 @@ export function useBoard(userId) {
   // ── Undo / redo ──
   // Snapshots of {root, trash} taken before each mutation. The whole tree lives
   // in memory anyway, so keeping a few dozen copies of it costs little.
-  const past = useRef([]);
-  const future = useRef([]);
-  const lastSnapshot = useRef({ label: null, at: 0 });
+  const past = useRef<HistoryEntry[]>([]);
+  const future = useRef<HistoryEntry[]>([]);
+  const lastSnapshot = useRef<{ label: string | null | undefined; at: number }>({ label: null, at: 0 });
   const [historySize, setHistorySize] = useState({ undo: 0, redo: 0 });
-  const [lastUndone, setLastUndone] = useState(null);
+  const [lastUndone, setLastUndone] = useState<{
+    label: string | null | undefined;
+    at: number;
+    direction: "undo" | "redo";
+  } | null>(null);
 
   // A session owns its draft, transaction and callbacks. Closing one account
   // cannot complete a read or schedule a write against the next account.
   useEffect(() => {
-    const session = { active: true, loaded: false, dirty: false, inFlight: false, base: null, latest: null, timer: null, snapshotVersion: 0 };
+    const session: Session = {
+      active: true, loaded: false, dirty: false, inFlight: false, base: null, latest: null, timer: null, snapshotVersion: 0,
+      persist: () => undefined, flush: async () => {}, retry: () => {}, schedule: () => {},
+      export: () => {}, reload: async () => {}, recover: () => {},
+    };
     sessionRef.current = session;
     needsSave.current = false;
     const resetHistory = () => {
@@ -139,15 +217,15 @@ export function useBoard(userId) {
       lastSnapshot.current = { label: null, at: 0 };
       setHistorySize({ undo: 0, redo: 0 }); setLastUndone(null);
     };
-    const apply = (state) => {
+    const apply = (state: HeldState) => {
       rootRef.current = state.root; favRef.current = state.favorites;
       trashRef.current = state.trash; settingsRef.current = state.settings;
       setRoot(state.root); setFavorites(state.favorites); setTrash(state.trash); setSettings(state.settings);
       session.latest = state;
     };
     const legacyLabels = makeDefaultLabels().map((label) => ({ ...label, id: `default-${label.color}` }));
-    const empty = () => ({ root: { ...EMPTY_BOARD, labels: makeDefaultLabels(), inbox: [] }, trash: [], favorites: [], settings: { ...DEFAULT_SETTINGS } });
-    const decode = (data) => {
+    const empty = (): BoardState => ({ root: { ...EMPTY_BOARD, labels: makeDefaultLabels(), inbox: [] }, trash: [], favorites: [], settings: { ...DEFAULT_SETTINGS } });
+    const decode = (data: DocumentData): BoardState => {
       const root = data.boardJson ? JSON.parse(data.boardJson) : data.board;
       if (!root || !Array.isArray(root.columns)) throw new Error("invalid-board");
       return { root: { ...root, inbox: root.inbox || [], labels: root.labels || legacyLabels },
@@ -161,10 +239,11 @@ export function useBoard(userId) {
     if (!userId) return () => { session.active = false; };
     const drafts = draftStore(userId);
     const docRef = doc(db, "boards", userId);
-    const errorCode = (error) => error.code === "conflict" ? "conflict" : error.code === "too-large" ? "too-large" : "failed";
+    const errorCode = (error: unknown): SaveError => (error as { code?: unknown }).code === "conflict" ? "conflict" : (error as { code?: unknown }).code === "too-large" ? "too-large" : "failed";
     session.persist = () => {
       if (!session.loaded || !session.dirty) return;
-      try { drafts.write({ base: session.base, local: session.latest, savedAt: new Date().toISOString() }); return true; }
+      // Loaded, so both are real states
+      try { drafts.write({ base: session.base!, local: session.latest as BoardState, savedAt: new Date().toISOString() }); return true; }
       catch { if (session.active) setSaveError("storage"); return false; }
     };
     const refresh = () => {
@@ -175,11 +254,12 @@ export function useBoard(userId) {
       }).catch(() => { if (session.active) setSaveError("failed"); });
     };
     session.flush = async () => {
-      clearTimeout(session.timer); session.timer = null;
+      clearTimeout(session.timer ?? undefined); session.timer = null;
       if (!session.active || !session.loaded || !session.dirty || session.inFlight) return;
       const stored = session.persist();
       if (!navigator.onLine) { if (stored) setSaveError("offline"); return; }
-      const submitted = session.latest, base = session.base;
+      // Loaded, so the root is there
+      const submitted = session.latest as BoardState, base = session.base;
       session.inFlight = true; setSaving(true);
       try {
         const committed = await runTransaction(db, async (tx) => {
@@ -189,14 +269,15 @@ export function useBoard(userId) {
           // to resurrect an entire stale tree.
           if (!snap.exists() && base !== null) throw Object.assign(new Error("conflict"), { code: "conflict" });
           const remote = snap.exists() ? decode(snap.data()) : null;
-          const initial = { root: { ...EMPTY_BOARD, inbox: [], labels: submitted.root.labels }, trash: [], favorites: [], settings: { ...DEFAULT_SETTINGS } };
-          const result = base === null ? (remote ? mergeBoardState(initial, submitted, remote) : submitted) : mergeBoardState(base, submitted, remote);
+          const initial: BoardState = { root: { ...EMPTY_BOARD, inbox: [], labels: submitted.root.labels }, trash: [], favorites: [], settings: { ...DEFAULT_SETTINGS } };
+          // With a base, a missing document was refused just above
+          const result = base === null ? (remote ? mergeBoardState(initial, submitted, remote) : submitted) : mergeBoardState(base, submitted, remote!);
           tx.set(docRef, encodeBoard(result), { merge: true });
           return result;
         });
         if (!session.active) return;
         // Typing may continue while the transaction is awaiting the server.
-        const latest = mergeBoardState(submitted, session.latest, committed);
+        const latest = mergeBoardState(submitted, session.latest as BoardState, committed);
         if (!boardStateEqual(committed, submitted)) resetHistory();
         session.base = committed;
         session.dirty = !boardStateEqual(latest, committed);
@@ -218,7 +299,7 @@ export function useBoard(userId) {
     };
     session.retry = () => session.loaded ? session.flush() : refresh();
     session.schedule = () => {
-      session.persist(); clearTimeout(session.timer);
+      session.persist(); clearTimeout(session.timer ?? undefined);
       session.timer = setTimeout(session.flush, 300);
     };
     session.export = () => {
@@ -237,7 +318,7 @@ export function useBoard(userId) {
         });
         if (!session.active) return;
         if (session.latest !== beforeReload) { setSaveError("conflict"); return; }
-        clearTimeout(session.timer); session.base = remote; session.dirty = false;
+        clearTimeout(session.timer ?? undefined); session.base = remote; session.dirty = false;
         needsSave.current = false; apply(remote); resetHistory(); drafts.clear(); setSaveError(null);
       } catch { if (session.active) setSaveError("failed"); }
     };
@@ -245,11 +326,11 @@ export function useBoard(userId) {
       // Other tabs' drafts are never deleted here. A merge is idempotent when
       // the originating tab has already saved the same changes.
       try {
-        const recovered = mergeBoardState(draft.base, draft.local, session.latest);
+        const recovered = mergeBoardState(draft.base, draft.local, session.latest as BoardState);
         apply(recovered); session.dirty = true; resetHistory(); session.schedule();
       } catch { setSaveError("conflict"); }
     };
-    const receive = (snap) => {
+    const receive = (snap: DocumentSnapshot) => {
       session.snapshotVersion++;
       if (!session.active) return;
       if (session.dirty || session.inFlight) { session.refreshNeeded = true; return; }
@@ -268,7 +349,7 @@ export function useBoard(userId) {
           apply(draft ? draft.local : (remote || empty()));
           setRecoveryDrafts(drafts.others());
           if (session.dirty) session.schedule();
-        } else if (!boardStateEqual(remote, session.base)) {
+        } else if (remote && !boardStateEqual(remote, session.base)) {
           session.base = remote; apply(remote); resetHistory();
         }
         if (!session.dirty) setSaveError(null);
@@ -286,7 +367,7 @@ export function useBoard(userId) {
     });
     const unsubscribe = onSnapshot(docRef, receive, () => { if (session.active) setSaveError("failed"); });
     const onVisibility = () => { if (document.visibilityState === "hidden") { session.persist(); session.flush(); } };
-    const onUnload = (event) => {
+    const onUnload = (event: BeforeUnloadEvent) => {
       session.persist();
       if (session.dirty) { event.preventDefault(); event.returnValue = ""; }
     };
@@ -296,7 +377,7 @@ export function useBoard(userId) {
     const timers = delayed.current;
     return () => {
       session.persist(); session.active = false;
-      clearTimeout(session.timer); timers.forEach(clearTimeout); timers.clear(); unsubscribe();
+      clearTimeout(session.timer ?? undefined); timers.forEach(clearTimeout); timers.clear(); unsubscribe();
       window.removeEventListener("online", session.flush);
       window.removeEventListener("beforeunload", onUnload);
       document.removeEventListener("visibilitychange", onVisibility);
@@ -318,7 +399,7 @@ export function useBoard(userId) {
     session.dirty = true;
     needsSave.current = true;
   };
-  const later = (action, delay) => {
+  const later = (action: () => void, delay: number) => {
     const session = sessionRef.current;
     const timer = setTimeout(() => {
       delayed.current.delete(timer);
@@ -329,7 +410,7 @@ export function useBoard(userId) {
   const retrySave = () => sessionRef.current?.retry?.();
   const exportBackup = () => sessionRef.current?.export?.();
   const reloadSaved = () => sessionRef.current?.reload?.();
-  const recoverDraft = (draft) => sessionRef.current?.recover?.(draft);
+  const recoverDraft = (draft: Draft) => sessionRef.current?.recover?.(draft);
 
   /**
    * Record the state about to change.
@@ -338,7 +419,7 @@ export function useBoard(userId) {
    * snapshots carrying the same label within a short window are folded into
    * one — otherwise undo would walk back letter by letter.
    */
-  const snapshot = (label) => {
+  const snapshot = (label: string | null | undefined) => {
     const now = Date.now();
     const merge =
       label != null &&
@@ -358,7 +439,7 @@ export function useBoard(userId) {
   };
 
   /** Apply a recorded state without recording it again */
-  const restore = useCallback((entry) => {
+  const restore = useCallback((entry: HistoryEntry) => {
     setRoot(entry.root);
     setTrash(entry.trash);
     lastSnapshot.current = { label: null, at: 0 };
@@ -457,7 +538,7 @@ export function useBoard(userId) {
 
   // Browser history integration
   useEffect(() => {
-    const handlePopState = (e) => {
+    const handlePopState = (e: PopStateEvent) => {
       const state = e.state;
       if (state && Array.isArray(state.path) && root) {
         const resolved = resolvePathFromIds(root, state.path);
@@ -479,7 +560,7 @@ export function useBoard(userId) {
   }, [root]);
 
   // ── Navigation ──
-  const navigate = useCallback((newPath) => {
+  const navigate = useCallback((newPath: TitledSegment[]) => {
     setNavigating(true);
     const segments = newPath.map((p) => ({ colId: p.colId, cardId: p.cardId }));
     later(() => {
@@ -490,14 +571,14 @@ export function useBoard(userId) {
   }, []);
 
   const enterCard = useCallback(
-    (card, colId) => {
+    (card: Pick<Card, "id" | "title">, colId: Id) => {
       navigate([...path, { colId, cardId: card.id, cardTitle: card.title }]);
     },
     [path, navigate]
   );
 
   const goToBreadcrumb = useCallback(
-    (idx) => {
+    (idx: number) => {
       if (idx === -1) navigate([]);
       else navigate(path.slice(0, idx + 1));
     },
@@ -512,14 +593,14 @@ export function useBoard(userId) {
    * The week view shows cards from everywhere at once and can open one where
    * it stands, so a mutation cannot assume the board you happen to be on.
    */
-  const mutateAt = useCallback((segments, updater, label) => {
+  const mutateAt = useCallback((segments: PathSegment[], updater: Updater, label?: SnapshotLabel) => {
     if (label !== SKIP_SNAPSHOT) snapshot(label);
-    setRoot((prev) => setAtPath(prev, segments, updater));
+    setRoot((prev) => prev && setAtPath(prev, segments, updater));
     touch();
   }, []);
 
   const mutate = useCallback(
-    (updater, label) => {
+    (updater: Updater, label?: SnapshotLabel) => {
       mutateAt(
         path.map((p) => ({ colId: p.colId, cardId: p.cardId })),
         updater,
@@ -531,7 +612,7 @@ export function useBoard(userId) {
 
   /** The board a mutation should land on: the one named, or the one we are on */
   const aim = useCallback(
-    (at) => at ?? path.map((p) => ({ colId: p.colId, cardId: p.cardId })),
+    (at?: PathSegment[] | null): PathSegment[] => at ?? path.map((p) => ({ colId: p.colId, cardId: p.cardId })),
     [path]
   );
 
@@ -543,8 +624,8 @@ export function useBoard(userId) {
    * created with a date is undone in one.
    */
   const addCardAt = useCallback(
-    (segments, colId, title, fields = {}) => {
-      const card = { ...makeCard(title), ...fields };
+    (segments: PathSegment[], colId: Id, title: string, fields: Partial<Card> = {}): Card => {
+      const card: Card = { ...makeCard(title), ...fields };
       mutateAt(segments, (board) => {
         const col = board.columns.find((c) => c.id === colId);
         if (col) col.cards.push(card);
@@ -556,7 +637,7 @@ export function useBoard(userId) {
   );
 
   const addCard = useCallback(
-    (colId, title) => {
+    (colId: Id, title: string) => {
       mutate((board) => {
         const col = board.columns.find((c) => c.id === colId);
         if (col) col.cards.push(makeCard(title));
@@ -568,22 +649,23 @@ export function useBoard(userId) {
 
   /** Build the trash entry for a deletion happening at the current path */
   const makeTrashItem = useCallback(
-    (payload) => ({
+    (payload: TrashPayload): TrashItem => ({
       id: uid(),
       ...payload,
       path: payload.path ?? path.map((p) => ({ colId: p.colId, cardId: p.cardId, cardTitle: p.cardTitle })),
       deletedAt: new Date().toISOString(),
-    }),
+    }) as TrashItem,
     [path]
   );
 
   const deleteCard = useCallback(
-    (colId, cardId, at) => {
+    (colId: Id, cardId: Id, at?: PathSegment[] | null) => {
       const segments = aim(at);
+      if (!rootRef.current) return;
       const board = resolveBoardAtPath(rootRef.current, segments);
       const col = board?.columns.find((c) => c.id === colId);
       const card = col?.cards.find((c) => c.id === cardId);
-      if (!card) return;
+      if (!col || !card) return;
 
       snapshot("delete_card");
       const item = makeTrashItem({
@@ -604,7 +686,7 @@ export function useBoard(userId) {
   );
 
   const renameCard = useCallback(
-    (colId, cardId, title) => {
+    (colId: Id, cardId: Id, title: string) => {
       mutate((board) => {
         const card = board.columns
           .find((c) => c.id === colId)
@@ -617,7 +699,7 @@ export function useBoard(userId) {
   );
 
   const updateCard = useCallback(
-    (colId, cardId, fields, at) => {
+    (colId: Id, cardId: Id, fields: Partial<Card>, at?: PathSegment[] | null) => {
       mutateAt(aim(at), (board) => {
         const card = board.columns
           .find((c) => c.id === colId)
@@ -634,12 +716,13 @@ export function useBoard(userId) {
    * refused — the only real case is a destination inside the card's own subtree.
    */
   const moveCardTo = useCallback(
-    (colId, cardId, destPath, destColId, at) => {
+    (colId: Id, cardId: Id, destPath: PathSegment[], destColId: Id, at?: PathSegment[] | null): boolean => {
       const from = {
         path: at ?? path.map((p) => ({ colId: p.colId, cardId: p.cardId })),
         colId,
         cardId,
       };
+      if (!rootRef.current) return false;
       const next = moveCardAcrossBoards(rootRef.current, from, {
         path: destPath,
         colId: destColId,
@@ -655,7 +738,7 @@ export function useBoard(userId) {
             .find((c) => c.id === destColId)
             ?.cards.find((c) => c.id === cardId);
           // A repeating card moves on rather than finishes, here as anywhere
-          if (isRepeating(landed)) {
+          if (landed && isRepeating(landed)) {
             rollCardOver(landed, nextOccurrence(landed.dueAt, landed.repeat));
           } else {
             markCardDone(destBoard, destColId, cardId);
@@ -673,11 +756,11 @@ export function useBoard(userId) {
 
   /** Copy a card, subtree included, right after the original */
   const duplicateCardAt = useCallback(
-    (colId, cardId, at) => {
+    (colId: Id, cardId: Id, at?: PathSegment[] | null) => {
       mutateAt(aim(at), (board) => {
         const col = board.columns.find((c) => c.id === colId);
         const index = col?.cards.findIndex((c) => c.id === cardId);
-        if (index == null || index < 0) return board;
+        if (!col || index == null || index < 0) return board;
         col.cards.splice(index + 1, 0, duplicateCard(col.cards[index]));
         return board;
       }, "duplicate_card");
@@ -686,7 +769,7 @@ export function useBoard(userId) {
   );
 
   const sortColumn = useCallback(
-    (colId, key) => {
+    (colId: Id, key: string) => {
       mutate((board) => {
         const col = board.columns.find((c) => c.id === colId);
         if (col) sortColumnCards(col, key);
@@ -697,7 +780,7 @@ export function useBoard(userId) {
   );
 
   const setCardArchived = useCallback(
-    (colId, cardId, archived, at) => {
+    (colId: Id, cardId: Id, archived: boolean, at?: PathSegment[] | null) => {
       updateCard(colId, cardId, { archived }, at);
     },
     [updateCard]
@@ -714,8 +797,9 @@ export function useBoard(userId) {
    * Auto-archiving is deferred so the tick is visible.
    */
   const toggleCardDone = useCallback(
-    (colId, cardId, at) => {
+    (colId: Id, cardId: Id, at?: PathSegment[] | null): "done" | "repeated" | false => {
       const segments = at ?? path.map((p) => ({ colId: p.colId, cardId: p.cardId }));
+      if (!rootRef.current) return false;
       const board = getBoardAtPath(rootRef.current, segments);
       const card = board?.columns
         .find((c) => c.id === colId)
@@ -743,11 +827,12 @@ export function useBoard(userId) {
       // Drawn before the mutation: an updater runs twice in strict mode, and
       // two runs would stamp two different instants.
       const stamp = becomingDone ? new Date().toISOString() : null;
+      const doneCol = board.columns.find(isDoneColumn);
       const filing =
         becomingDone &&
         settingsRef.current.moveOnDone &&
-        isDoneColumn(board.columns.find(isDoneColumn)) &&
-        board.columns.find(isDoneColumn).id !== colId;
+        doneCol !== undefined &&
+        doneCol.id !== colId;
 
       mutateAt(segments, (b) => {
         const col = b.columns.find((c) => c.id === colId);
@@ -762,7 +847,7 @@ export function useBoard(userId) {
 
       if (becomingDone && settingsRef.current.autoArchiveDone) {
         // The card may have just changed column — archive it where it landed
-        const landed = filing ? board.columns.find(isDoneColumn).id : colId;
+        const landed = filing ? doneCol.id : colId;
         later(() => setCardArchived(landed, cardId, true, segments), AUTO_ARCHIVE_DELAY);
       }
       return becomingDone ? "done" : false;
@@ -778,7 +863,7 @@ export function useBoard(userId) {
    * one it is in — and this runs right after that tick.
    */
   const finishBranch = useCallback(
-    (at, cardId) => {
+    (at: PathSegment[] | null | undefined, cardId: Id) => {
       // Drawn outside: an updater runs twice in strict mode, and two runs
       // would stamp a branch with two different instants.
       const stamp = new Date().toISOString();
@@ -793,7 +878,7 @@ export function useBoard(userId) {
   );
 
   const addCol = useCallback(
-    (title) => {
+    (title: string) => {
       mutate((board) => {
         board.columns.push(makeCol(title));
         return board;
@@ -803,7 +888,8 @@ export function useBoard(userId) {
   );
 
   const deleteCol = useCallback(
-    (colId) => {
+    (colId: Id) => {
+      if (!rootRef.current) return;
       const board = getBoardAtPath(
         rootRef.current,
         path.map((p) => ({ colId: p.colId, cardId: p.cardId }))
@@ -828,11 +914,12 @@ export function useBoard(userId) {
 
   /** Move a whole column to another board. False when refused (cycle). */
   const moveColumnTo = useCallback(
-    (colId, destPath) => {
+    (colId: Id, destPath: PathSegment[]): boolean => {
       const from = {
         path: path.map((p) => ({ colId: p.colId, cardId: p.cardId })),
         colId,
       };
+      if (!rootRef.current) return false;
       const next = moveColumnAcrossBoards(rootRef.current, from, { path: destPath });
       if (!next) return false;
       snapshot("move_col");
@@ -844,7 +931,7 @@ export function useBoard(userId) {
   );
 
   const renameCol = useCallback(
-    (colId, title) => {
+    (colId: Id, title: string) => {
       mutate((board) => {
         const col = board.columns.find((c) => c.id === colId);
         if (col) col.title = title;
@@ -855,7 +942,7 @@ export function useBoard(userId) {
   );
 
   const updateColEmoji = useCallback(
-    (colId, emoji) => {
+    (colId: Id, emoji: string) => {
       mutate((board) => {
         const col = board.columns.find((c) => c.id === colId);
         if (col) col.emoji = emoji;
@@ -866,7 +953,7 @@ export function useBoard(userId) {
   );
 
   const updateColColor = useCallback(
-    (colId, color) => {
+    (colId: Id, color: string) => {
       mutate((board) => {
         const col = board.columns.find((c) => c.id === colId);
         if (col) col.color = color;
@@ -877,9 +964,10 @@ export function useBoard(userId) {
   );
 
   const reorderCards = useCallback(
-    (sourceColId, destColId, sourceIdx, destIdx) => {
+    (sourceColId: Id, destColId: Id, sourceIdx: number, destIdx: number): Id | null => {
       // Worked out before the mutation: mutate's updater runs inside setRoot
       // and may be replayed, so it is no place to decide a follow-up action.
+      if (!rootRef.current) return null;
       const board = getBoardAtPath(
         rootRef.current,
         path.map((p) => ({ colId: p.colId, cardId: p.cardId }))
@@ -900,7 +988,7 @@ export function useBoard(userId) {
       mutate((b) => {
         moveCardBetweenColumns(b, sourceColId, destColId, sourceIdx, destIdx);
         // Same step as the move, so one undo puts both back
-        if (rolling) {
+        if (rolling && moved) {
           rollCardOver(
             b.columns.find((c) => c.id === destColId)?.cards.find((c) => c.id === moved.id),
             rolling
@@ -922,7 +1010,7 @@ export function useBoard(userId) {
   );
 
   const applyPreset = useCallback(
-    (columns) => {
+    (columns: { title: string; emoji?: string }[]) => {
       mutate((board) => {
         board.columns = columns.map((col) => {
           const c = makeCol(col.title);
@@ -936,7 +1024,7 @@ export function useBoard(userId) {
   );
 
   const reorderCols = useCallback(
-    (sourceIdx, destIdx) => {
+    (sourceIdx: number, destIdx: number) => {
       mutate((board) => {
         const [moved] = board.columns.splice(sourceIdx, 1);
         board.columns.splice(destIdx, 0, moved);
@@ -952,8 +1040,9 @@ export function useBoard(userId) {
   const labels = boardLabels(root);
 
   /** Root-level mutation: labels are global, not scoped to the current path */
-  const mutateRoot = useCallback((updater) => {
+  const mutateRoot = useCallback((updater: (root: RootBoard) => void) => {
     setRoot((prev) => {
+      if (!prev) return prev;
       const clone = deepClone(prev);
       updater(clone);
       return clone;
@@ -962,7 +1051,7 @@ export function useBoard(userId) {
   }, []);
 
   const addLabel = useCallback(
-    (name, color) => {
+    (name: string, color: string) => {
       mutateRoot((r) => {
         if (!r.labels) r.labels = [];
         r.labels.push({ id: uid(), name: name || "", color });
@@ -972,7 +1061,7 @@ export function useBoard(userId) {
   );
 
   const updateLabel = useCallback(
-    (labelId, fields) => {
+    (labelId: Id, fields: Partial<Label>) => {
       mutateRoot((r) => {
         const label = (r.labels || []).find((l) => l.id === labelId);
         if (label) Object.assign(label, fields);
@@ -983,7 +1072,7 @@ export function useBoard(userId) {
 
   /** Deleting a label also strips it from every card that carried it */
   const deleteLabel = useCallback(
-    (labelId) => {
+    (labelId: Id) => {
       mutateRoot((r) => {
         r.labels = (r.labels || []).filter((l) => l.id !== labelId);
         stripLabelFromTree(r, labelId);
@@ -993,7 +1082,7 @@ export function useBoard(userId) {
   );
 
   const toggleCardLabel = useCallback(
-    (colId, cardId, labelId, at) => {
+    (colId: Id, cardId: Id, labelId: Id, at?: PathSegment[] | null) => {
       mutateAt(aim(at), (board) => {
         const card = board.columns
           .find((c) => c.id === colId)
@@ -1012,7 +1101,7 @@ export function useBoard(userId) {
   // ── Due date ──
 
   const setCardDue = useCallback(
-    (colId, cardId, dueAt, at) => {
+    (colId: Id, cardId: Id, dueAt: string | null | undefined, at?: PathSegment[] | null) => {
       updateCard(colId, cardId, { dueAt: dueAt || null }, at);
     },
     [updateCard]
@@ -1027,7 +1116,7 @@ export function useBoard(userId) {
    * Same step as the repetition, so one undo lifts both.
    */
   const setCardRepeat = useCallback(
-    (colId, cardId, repeat, at) => {
+    (colId: Id, cardId: Id, repeat: Repeat | null | undefined, at?: PathSegment[] | null) => {
       const rule = normalizeRepeat(repeat);
       // Drawn outside: an updater runs twice in strict mode
       const today = dayFromNow(0);
@@ -1050,10 +1139,10 @@ export function useBoard(userId) {
    * The week view shows cards from every board at once, so it cannot go
    * through the mutations that work on wherever you happen to be standing.
    */
-  const setCardDueAt = useCallback((segments, colId, cardId, dueAt) => {
+  const setCardDueAt = useCallback((segments: PathSegment[], colId: Id, cardId: Id, dueAt: IsoDay | null | undefined) => {
     snapshot("set_due");
     setRoot((prev) =>
-      setAtPath(prev, segments, (board) => {
+      prev && setAtPath(prev, segments, (board) => {
         const card = board.columns
           .find((c) => c.id === colId)
           ?.cards.find((c) => c.id === cardId);
@@ -1075,9 +1164,9 @@ export function useBoard(userId) {
    * One mutation for the whole lane rather than one per card: the order is a
    * single decision, so it is a single undo, and a single save.
    */
-  const rankCards = useCallback((entries) => {
+  const rankCards = useCallback((entries: RankEntry[]) => {
     snapshot("rank_cards");
-    setRoot((prev) => applyRanks(prev, entries));
+    setRoot((prev) => prev && applyRanks(prev, entries));
     touch();
   }, []);
 
@@ -1085,7 +1174,13 @@ export function useBoard(userId) {
 
   /** Run an updater on one card's checklist array */
   const mutateChecklists = useCallback(
-    (colId, cardId, updater, label = "checklist", at) => {
+    (
+      colId: Id,
+      cardId: Id,
+      updater: (lists: Checklist[]) => Checklist[],
+      label = "checklist",
+      at?: PathSegment[] | null,
+    ) => {
       mutateAt(aim(at), (board) => {
         const card = board.columns
           .find((c) => c.id === colId)
@@ -1101,13 +1196,13 @@ export function useBoard(userId) {
   /* `at` runs through every one of these: a checklist edited from the week
      view must land on the card's own board, not on the one behind it. */
   const addChecklist = useCallback(
-    (colId, cardId, title, at) =>
+    (colId: Id, cardId: Id, title: string, at?: PathSegment[] | null) =>
       mutateChecklists(colId, cardId, (lists) => [...lists, makeChecklist(title)], "checklist", at),
     [mutateChecklists]
   );
 
   const renameChecklist = useCallback(
-    (colId, cardId, listId, title, at) =>
+    (colId: Id, cardId: Id, listId: Id, title: string, at?: PathSegment[] | null) =>
       mutateChecklists(colId, cardId, (lists) =>
         lists.map((l) => (l.id === listId ? { ...l, title } : l)), "checklist", at
       ),
@@ -1115,13 +1210,13 @@ export function useBoard(userId) {
   );
 
   const deleteChecklist = useCallback(
-    (colId, cardId, listId, at) =>
+    (colId: Id, cardId: Id, listId: Id, at?: PathSegment[] | null) =>
       mutateChecklists(colId, cardId, (lists) => lists.filter((l) => l.id !== listId), "checklist", at),
     [mutateChecklists]
   );
 
   const addChecklistItem = useCallback(
-    (colId, cardId, listId, text, at) =>
+    (colId: Id, cardId: Id, listId: Id, text: string, at?: PathSegment[] | null) =>
       mutateChecklists(colId, cardId, (lists) =>
         lists.map((l) =>
           l.id === listId ? { ...l, items: [...l.items, makeChecklistItem(text)] } : l
@@ -1131,7 +1226,7 @@ export function useBoard(userId) {
   );
 
   const toggleChecklistItem = useCallback(
-    (colId, cardId, listId, itemId, at) =>
+    (colId: Id, cardId: Id, listId: Id, itemId: Id, at?: PathSegment[] | null) =>
       mutateChecklists(colId, cardId, (lists) =>
         lists.map((l) =>
           l.id === listId
@@ -1148,7 +1243,7 @@ export function useBoard(userId) {
   );
 
   const updateChecklistItem = useCallback(
-    (colId, cardId, listId, itemId, text, at) =>
+    (colId: Id, cardId: Id, listId: Id, itemId: Id, text: string, at?: PathSegment[] | null) =>
       mutateChecklists(colId, cardId, (lists) =>
         lists.map((l) =>
           l.id === listId
@@ -1160,7 +1255,7 @@ export function useBoard(userId) {
   );
 
   const deleteChecklistItem = useCallback(
-    (colId, cardId, listId, itemId, at) =>
+    (colId: Id, cardId: Id, listId: Id, itemId: Id, at?: PathSegment[] | null) =>
       mutateChecklists(colId, cardId, (lists) =>
         lists.map((l) =>
           l.id === listId ? { ...l, items: l.items.filter((i) => i.id !== itemId) } : l
@@ -1171,17 +1266,17 @@ export function useBoard(userId) {
 
   // ── Settings ──
 
-  const updateSettings = useCallback((patch) => {
+  const updateSettings = useCallback((patch: Partial<Settings>) => {
     setSettings((prev) => ({ ...prev, ...patch }));
     touch();
   }, []);
 
   // ── Favorites ──
 
-  const favKey = (segments) => segments.map((s) => `${s.colId}:${s.cardId}`).join("/");
+  const favKey = (segments: PathSegment[]) => segments.map((s) => `${s.colId}:${s.cardId}`).join("/");
 
   /** Bookmark a position — the one given, or the one we are standing on */
-  const addFavoriteAt = useCallback((at, title) => {
+  const addFavoriteAt = useCallback((at: TitledSegment[] | null | undefined, title?: string) => {
     if (!at || at.length === 0) return;
     const segments = at.map((p) => ({
       colId: p.colId,
@@ -1197,18 +1292,18 @@ export function useBoard(userId) {
   }, []);
 
   const addFavorite = useCallback(
-    (title) => addFavoriteAt(path, title),
+    (title?: string) => addFavoriteAt(path, title),
     [path, addFavoriteAt]
   );
 
-  const removeFavorite = useCallback((favId) => {
+  const removeFavorite = useCallback((favId: Id) => {
     setFavorites((prev) => prev.filter((f) => f.id !== favId));
     touch();
   }, []);
 
   /** Whether a position is bookmarked, and which bookmark it is */
   const favoriteOf = useCallback(
-    (at) => {
+    (at: PathSegment[] | null | undefined): Favorite | null => {
       if (!at || at.length === 0) return null;
       const key = favKey(at);
       return favorites.find((f) => favKey(f.path) === key) ?? null;
@@ -1222,7 +1317,7 @@ export function useBoard(userId) {
     favorites.some((f) => f.path.map((s) => `${s.colId}:${s.cardId}`).join("/") === pathKey);
 
   const goToFavorite = useCallback(
-    (fav) => {
+    (fav: Favorite) => {
       if (!root) return;
       const resolved = resolvePathFromIds(root, fav.path);
       if (resolved.length > 0) {
@@ -1234,17 +1329,18 @@ export function useBoard(userId) {
 
   // ── Trash ──
 
-  const restoreFromTrash = useCallback((trashId) => {
+  const restoreFromTrash = useCallback((trashId: Id) => {
     const item = trashRef.current.find((t) => t.id === trashId);
     if (!item) return;
 
     snapshot("restore");
     setRoot((prev) => {
-      if (item.source === "inbox") return captureInboxCard(prev, deepClone(item.card));
+      if (item.type === "card" && item.source === "inbox") return captureInboxCard(prev, deepClone(item.card));
+      if (!prev) return prev;
       const clone = deepClone(prev);
       // Walk to where the item was deleted from; fall back to the root board
       // if that branch has since disappeared.
-      let board = clone;
+      let board: Board = clone;
       for (const seg of item.path) {
         const col = board.columns.find((c) => c.id === seg.colId);
         const card = col?.cards.find((c) => c.id === seg.cardId);
@@ -1274,7 +1370,7 @@ export function useBoard(userId) {
     touch();
   }, []);
 
-  const permanentDeleteFromTrash = useCallback((trashId) => {
+  const permanentDeleteFromTrash = useCallback((trashId: Id) => {
     setTrash((prev) => prev.filter((t) => t.id !== trashId));
     touch();
   }, []);
@@ -1285,6 +1381,7 @@ export function useBoard(userId) {
   }, []);
 
   const purgeArchives = useCallback(() => {
+    if (!rootRef.current) return;
     const next = purgeArchivedCards(rootRef.current);
     if (next === rootRef.current) return;
     setRoot(next);
@@ -1302,6 +1399,7 @@ export function useBoard(userId) {
   }, []);
 
   const archiveDone = useCallback(() => {
+    if (!rootRef.current) return;
     const next = archiveCompletedCards(rootRef.current);
     if (next === rootRef.current) return;
     snapshot("archive_done");
@@ -1309,7 +1407,7 @@ export function useBoard(userId) {
     touch();
   }, []);
 
-  const captureInbox = useCallback((title, { description = "" } = {}) => {
+  const captureInbox = useCallback((title: string, { description = "" }: { description?: string } = {}): boolean => {
     const text = title.trim();
     if (!text || !rootRef.current) return false;
     const card = { ...makeCard(text), description, capturedAt: new Date().toISOString() };
@@ -1319,7 +1417,8 @@ export function useBoard(userId) {
     return true;
   }, []);
 
-  const renameInbox = useCallback((id, title) => {
+  const renameInbox = useCallback((id: Id, title: string): boolean => {
+    if (!rootRef.current) return false;
     const next = editInboxCard(rootRef.current, id, title);
     if (next === rootRef.current) return false;
     snapshot("inbox_edit");
@@ -1328,7 +1427,8 @@ export function useBoard(userId) {
     return true;
   }, []);
 
-  const updateInbox = useCallback((id, fields) => {
+  const updateInbox = useCallback((id: Id, fields: Partial<Card>): boolean => {
+    if (!rootRef.current) return false;
     const next = updateInboxCard(rootRef.current, id, fields);
     if (next === rootRef.current) return false;
     snapshot("inbox_edit");
@@ -1337,7 +1437,15 @@ export function useBoard(userId) {
     return true;
   }, []);
 
-  const fileInbox = useCallback((id, destPath, destColId, index, labelFilter, planning = {}) => {
+  const fileInbox = useCallback((
+    id: Id,
+    destPath: PathSegment[],
+    destColId: Id,
+    index?: number,
+    labelFilter?: Id[],
+    planning: { dueAt?: string | null; lane?: string; index?: number } = {},
+  ): boolean => {
+    if (!rootRef.current) return false;
     const next = fileInboxCard(rootRef.current, id, destPath, destColId, {
       doneOnDrop: settingsRef.current.doneOnDrop,
       stamp: new Date().toISOString(),
@@ -1354,7 +1462,7 @@ export function useBoard(userId) {
     return true;
   }, []);
 
-  const moveToInbox = useCallback((sourcePath, colId, cardId, index) => {
+  const moveToInbox = useCallback((sourcePath: PathSegment[], colId: Id, cardId: Id, index?: number): boolean => {
     const next = moveCardIntoInbox(rootRef.current, sourcePath, colId, cardId, {
       index, stamp: new Date().toISOString(),
     });
@@ -1365,7 +1473,8 @@ export function useBoard(userId) {
     return true;
   }, []);
 
-  const reorderInbox = useCallback((from, to) => {
+  const reorderInbox = useCallback((from: number, to: number) => {
+    if (!rootRef.current) return;
     const next = reorderInboxCards(rootRef.current, from, to);
     if (next === rootRef.current) return;
     snapshot("inbox_reorder");
@@ -1373,14 +1482,14 @@ export function useBoard(userId) {
     touch();
   }, []);
 
-  const deleteInbox = useCallback((id) => {
+  const deleteInbox = useCallback((id: Id) => {
     const card = inboxCards(rootRef.current).find((item) => item.id === id);
     if (!card) return;
     snapshot("inbox_delete");
-    const item = { id: uid(), type: "card", source: "inbox", card: deepClone(card),
+    const item: CardTrashItem = { id: uid(), type: "card", source: "inbox", card: deepClone(card),
       path: [], colId: null, colTitle: "Inbox", deletedAt: new Date().toISOString() };
     setTrash((prev) => [...prev, item]);
-    setRoot((prev) => removeInboxCard(prev, id));
+    setRoot((prev) => prev && removeInboxCard(prev, id));
     touch();
   }, []);
 

@@ -120,7 +120,7 @@ export interface InboxPlan {
   index: number;
 }
 
-export function inboxPlanDrop(root: RootBoard, result: DropResult, options?: PlanOptions): InboxPlan | null {
+export function inboxPlanDrop(root: RootBoard | null | undefined, result: DropResult, options?: PlanOptions): InboxPlan | null {
   const { source, destination, draggableId, reason } = result;
   if (reason === "CANCEL" || source.droppableId !== INBOX_DROP_ID || !destination || !(LANES as readonly string[]).includes(destination.droppableId)) return null;
   const card = inboxCards(root).find((item) => item.id === draggableId);

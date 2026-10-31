@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback } from "react";
+import { useRef, useState, useCallback, type PointerEvent } from "react";
 import { buzz } from "../lib/haptics";
 
 /** How far a card has to travel before letting go acts, in pixels */
@@ -22,10 +22,10 @@ const SLOP = 8;
  * which tells the tick's click handler whether the click is a real tap or the
  * tail end of a swipe it must ignore.
  */
-export function useSwipe({ onRight, onLeft, enabled = true }) {
+export function useSwipe({ onRight, onLeft, enabled = true }: { onRight?: () => void; onLeft?: () => void; enabled?: boolean }) {
   const [dx, setDx] = useState(0);
   const [active, setActive] = useState(false);
-  const start = useRef(null);
+  const start = useRef<{ x: number; y: number; id: number } | null>(null);
   const armed = useRef(false);
   const swiped = useRef(false);
 
@@ -37,7 +37,7 @@ export function useSwipe({ onRight, onLeft, enabled = true }) {
   }, []);
 
   const onPointerDown = useCallback(
-    (e) => {
+    (e: PointerEvent<HTMLElement>) => {
       if (!enabled || e.pointerType !== "touch") return;
       start.current = { x: e.clientX, y: e.clientY, id: e.pointerId };
       swiped.current = false;
@@ -45,7 +45,7 @@ export function useSwipe({ onRight, onLeft, enabled = true }) {
     [enabled]
   );
 
-  const onPointerMove = useCallback((e) => {
+  const onPointerMove = useCallback((e: PointerEvent<HTMLElement>) => {
     const s = start.current;
     if (!s || e.pointerId !== s.id) return;
     const moved = e.clientX - s.x;
@@ -69,7 +69,7 @@ export function useSwipe({ onRight, onLeft, enabled = true }) {
   }, []);
 
   const onPointerUp = useCallback(
-    (e) => {
+    (e: PointerEvent<HTMLElement>) => {
       const s = start.current;
       if (!s || e.pointerId !== s.id) return;
       const moved = e.clientX - s.x;

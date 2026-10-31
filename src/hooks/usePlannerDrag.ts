@@ -1,4 +1,9 @@
 import { useMemo, useCallback, useState, useRef, useEffect } from "react";
+import type { DropResult } from "@hello-pangea/dnd";
+import type { RankEntry } from "../lib/board-utils";
+import type { InboxPlan } from "../lib/inbox";
+import type { Lane } from "../lib/planner";
+import type { Id, IsoDay, RootBoard, Settings, TitledSegment } from "../lib/types";
 import { planWeek, dateForLane, reorderEntries } from "../lib/planner";
 import { INBOX_DROP_ID, inboxPlanDrop } from "../lib/inbox";
 import { settleInboxTransition } from "../lib/inbox-motion";
@@ -8,8 +13,20 @@ import { preparePlannerDrag } from "../lib/planner-drag";
 
 const RANKED_LANE = "today";
 
+export interface PlannerDragOptions {
+  root: RootBoard | null;
+  settings?: Settings | null;
+  /** Not read: a new day is what makes the lanes be cut again */
+  today: string;
+  onSetDue: (path: TitledSegment[], colId: Id, cardId: Id, date: IsoDay) => void;
+  onReorder: (entries: RankEntry[]) => void;
+  onInboxDrop?: (drop: InboxPlan) => void;
+  onMoveToInbox?: (path: TitledSegment[], colId: Id, cardId: Id, index: number) => void;
+  onReorderInbox?: (from: number, to: number) => void;
+}
+
 /** One drag context for the visible plan and the Inbox beside it. */
-export function usePlannerDrag({ root, settings, today, onSetDue, onReorder, onInboxDrop, onMoveToInbox, onReorderInbox }) {
+export function usePlannerDrag({ root, settings, today, onSetDue, onReorder, onInboxDrop, onMoveToInbox, onReorderInbox }: PlannerDragOptions) {
   /* `today` is not read, it is what invalidates: the lanes are cut against
      the current date, and a new day has to cut them again. */
   const lanes = useMemo(
@@ -19,16 +36,16 @@ export function usePlannerDrag({ root, settings, today, onSetDue, onReorder, onI
   );
 
   // The lanes run off the side of a phone too, and a card is carried across them
-  const lanesRef = useRef(null);
+  const lanesRef = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState(false);
   useEdgeScroll(lanesRef, dragging);
-  const restoreDragScroll = useRef(null);
+  const restoreDragScroll = useRef<(() => void) | null>(null);
   useEffect(() => () => restoreDragScroll.current?.(), []);
   /* Crossing into another lane means a date. Staying inside the one hand-made
      lane means an order. Anywhere else a card would land back where the date
      puts it, so the move is refused rather than played and undone. */
   const onDragEnd = useCallback(
-    (result) => {
+    (result: DropResult) => {
       restoreDragScroll.current?.();
       restoreDragScroll.current = null;
       setDragging(false);
@@ -46,7 +63,7 @@ export function usePlannerDrag({ root, settings, today, onSetDue, onReorder, onI
         return;
       }
 
-      const item = lanes[source.droppableId]?.find((i) => i.card.id === draggableId);
+      const item = lanes[source.droppableId as Lane]?.find((i) => i.card.id === draggableId);
       if (!item) return;
       if (destination.droppableId === INBOX_DROP_ID) {
         onMoveToInbox?.(item.path, item.colId, item.card.id, destination.index);

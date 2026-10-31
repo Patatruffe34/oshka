@@ -7,6 +7,8 @@ import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signOut,
+  type AuthError,
+  type User,
 } from "firebase/auth";
 import { auth } from "../lib/firebase";
 
@@ -16,18 +18,19 @@ const ACTION_CODE_SETTINGS = {
 };
 
 /** Detect if we are running inside the installed PWA (standalone mode) */
-function isStandalone() {
+function isStandalone(): boolean {
   return (
-    window.navigator.standalone === true || // iOS Safari
+    (window.navigator as Navigator & { standalone?: boolean }).standalone === true || // iOS Safari
     window.matchMedia("(display-mode: standalone)").matches // Chrome / Android
   );
 }
 
 export function useAuth() {
-  const [user, setUser] = useState(null);
+  const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
-  const [error, setError] = useState(null);
+  /** A Firebase message or code, or one of the app's own: wrong_password, email_in_use */
+  const [error, setError] = useState<string | null>(null);
   // Read once: a magic link either has its email stored here, or was opened in
   // another browser/device and the user has to type it again
   const [magicLink] = useState(() =>
@@ -84,7 +87,7 @@ export function useAuth() {
       .finally(() => setVerifying(false));
   }, [magicLink]);
 
-  const sendMagicLink = async (email) => {
+  const sendMagicLink = async (email: string): Promise<boolean> => {
     setSending(true);
     setError(null);
     try {
@@ -93,13 +96,13 @@ export function useAuth() {
       setSending(false);
       return true;
     } catch (err) {
-      setError(err.message);
+      setError((err as AuthError).message);
       setSending(false);
       return false;
     }
   };
 
-  const confirmEmail = async (email) => {
+  const confirmEmail = async (email: string): Promise<boolean> => {
     if (!magicLinkUrl.current) return false;
     setSending(true);
     setError(null);
@@ -111,13 +114,13 @@ export function useAuth() {
       setSending(false);
       return true;
     } catch (err) {
-      setError(err.message);
+      setError((err as AuthError).message);
       setSending(false);
       return false;
     }
   };
 
-  const signInWithPassword = async (email, password) => {
+  const signInWithPassword = async (email: string, password: string): Promise<boolean> => {
     setSending(true);
     setError(null);
     try {
@@ -125,17 +128,18 @@ export function useAuth() {
       setSending(false);
       return true;
     } catch (err) {
-      if (err.code === "auth/invalid-credential") {
+      const { code } = err as AuthError;
+      if (code === "auth/invalid-credential") {
         setError("wrong_password");
       } else {
-        setError(err.code);
+        setError(code);
       }
       setSending(false);
       return false;
     }
   };
 
-  const signUpWithPassword = async (email, password) => {
+  const signUpWithPassword = async (email: string, password: string): Promise<boolean> => {
     setSending(true);
     setError(null);
     try {
@@ -143,10 +147,11 @@ export function useAuth() {
       setSending(false);
       return true;
     } catch (err) {
-      if (err.code === "auth/email-already-in-use") {
+      const { code } = err as AuthError;
+      if (code === "auth/email-already-in-use") {
         setError("email_in_use");
       } else {
-        setError(err.code);
+        setError(code);
       }
       setSending(false);
       return false;

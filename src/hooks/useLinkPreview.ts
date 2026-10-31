@@ -2,20 +2,28 @@ import { useState, useEffect } from "react";
 
 const URL_REGEX = /^https?:\/\/[^\s]+$/i;
 
+export interface LinkPreview {
+  title: string | null;
+  description: string | null;
+  image: string | null;
+  siteName: string;
+  url: string;
+}
+
 
 /**
  * Detects if a card title is a URL and fetches Open Graph preview data.
  * Uses microlink.io as a free OG metadata proxy.
  */
-export function useLinkPreview(title, enabled = false) {
-  const [preview, setPreview] = useState(null);
+export function useLinkPreview(title: string | null | undefined, enabled = false) {
+  const [preview, setPreview] = useState<LinkPreview | null>(null);
   const [loading, setLoading] = useState(false);
 
   const url = title?.trim();
-  const isUrl = url && URL_REGEX.test(url);
+  const isUrl = !!url && URL_REGEX.test(url);
 
   useEffect(() => {
-    if (!isUrl || !enabled || !navigator.onLine) return;
+    if (!url || !isUrl || !enabled || !navigator.onLine) return;
     const controller = new AbortController();
 
     const fetchPreview = async () => {
@@ -29,7 +37,7 @@ export function useLinkPreview(title, enabled = false) {
         if (controller.signal.aborted) return;
 
         if (json.status === "success" && json.data) {
-          const data = {
+          const data: LinkPreview = {
             title: json.data.title || null,
             description: json.data.description || null,
             image: json.data.image?.url || json.data.logo?.url || null,
@@ -51,7 +59,7 @@ export function useLinkPreview(title, enabled = false) {
           setPreview(fallback);
         }
       } catch (err) {
-        if (err.name !== "AbortError") {
+        if ((err as Error).name !== "AbortError") {
           const fallback = {
             title: null,
             description: null,

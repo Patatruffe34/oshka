@@ -33,7 +33,7 @@ describe("le dictionnaire", () => {
 
   it("nomme chaque action que l'historique peut annuler", () => {
     // Sans ca le bandeau d'annulation affiche la cle brute a l'utilisateur
-    const board = read("hooks/useBoard.js");
+    const board = read("hooks/useBoard.ts");
     const labels = [
       ...new Set(
         [...board.matchAll(/snapshot\("([a-z_]+)"\)|\}, "([a-z_]+)"\)/g)].map(

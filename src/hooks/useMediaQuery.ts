@@ -7,9 +7,9 @@ import { useSyncExternalStore, useCallback } from "react";
  * an external store, and this reads it during render instead of correcting the
  * value after a first paint at the wrong breakpoint.
  */
-export function useMediaQuery(query) {
+export function useMediaQuery(query: string): boolean {
   const subscribe = useCallback(
-    (onChange) => {
+    (onChange: () => void) => {
       const mql = window.matchMedia(query);
       mql.addEventListener("change", onChange);
       return () => mql.removeEventListener("change", onChange);
