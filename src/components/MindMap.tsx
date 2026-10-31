@@ -4,7 +4,7 @@ import { colorHex, colorInk } from "../lib/palette";
 import { dueState, cardLabels } from "../lib/board-utils";
 import ViewSwitch from "./ViewSwitch";
 import { useI18n } from "../lib/i18n";
-import type { Label, PathSegment, RootBoard } from "../lib/types";
+import type { Label, PathSegment, RootBoard, TitledSegment } from "../lib/types";
 
 interface Viewport {
   x: number;
@@ -39,7 +39,7 @@ interface MindMapProps {
   labels: Label[];
   /** Where you stand, marked on the map */
   path: PathSegment[];
-  onGo: (path: PathSegment[]) => void;
+  onGo: (path: TitledSegment[]) => void;
   onOpenOutline: () => void;
   onClose: () => void;
 }
@@ -111,7 +111,7 @@ export default function MindMap({ root, labels, path, onGo, onOpenOutline, onClo
       return next;
     });
 
-  const enter = (p: PathSegment[]) => { onGo(p); onClose(); };
+  const enter = (p: TitledSegment[]) => { onGo(p); onClose(); };
 
   // ── Pan & zoom ──
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {

@@ -9,7 +9,7 @@ import {
 import { colorHex } from "../lib/palette";
 import { useI18n } from "../lib/i18n";
 import ViewSwitch from "./ViewSwitch";
-import type { Label, PathSegment, RootBoard } from "../lib/types";
+import type { Label, PathSegment, RootBoard, TitledSegment } from "../lib/types";
 
 /**
  * The whole tree at once, as a foldable outline.
@@ -23,7 +23,7 @@ interface OutlinePanelProps {
   labels: Label[];
   /** Where you stand, unfolded when the outline opens */
   path: PathSegment[];
-  onGo: (path: PathSegment[]) => void;
+  onGo: (path: TitledSegment[]) => void;
   onOpenMap: () => void;
   onClose: () => void;
 }

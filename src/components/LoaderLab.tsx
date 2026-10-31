@@ -8,7 +8,7 @@ import LoadingLogo from "./LoadingLogo";
  * copy: a copy would drift from what actually ships, which is exactly when a
  * bench stops being worth anything.
  *
- * Development only — mounted from main.jsx at #loader.
+ * Development only — mounted from main.tsx at #loader.
  */
 const SPEEDS = [1, 0.5, 0.25];
 

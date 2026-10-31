@@ -1,8 +1,8 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { I18nProvider } from "./lib/i18n";
-import App from "./App.jsx";
-import LoaderLab from "./components/LoaderLab.jsx";
+import App from "./App";
+import LoaderLab from "./components/LoaderLab";
 import { stageIncomingShare } from "./lib/share-target";
 
 const initialShare = stageIncomingShare();
@@ -30,7 +30,7 @@ window.addEventListener("hashchange", () => {
 
 const lab = import.meta.env.DEV && isLab();
 
-createRoot(document.getElementById("root")).render(
+createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <I18nProvider>{lab ? <LoaderLab /> : <App initialShare={initialShare} />}</I18nProvider>
   </StrictMode>

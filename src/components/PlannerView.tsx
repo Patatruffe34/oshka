@@ -21,7 +21,8 @@ import type { Id, Label, PathSegment, RootBoard } from "../lib/types";
 type PlannerDrag = ReturnType<typeof usePlannerDrag>;
 
 interface PlannerContentProps {
-  root: RootBoard;
+  /** Null until the board has loaded; the lanes are empty meanwhile */
+  root: RootBoard | null;
   labels: Label[];
   onOpen: (item: PlannedItem) => void;
   onLocate: LocateCard;
@@ -208,7 +209,7 @@ function PlannerContent({ root, labels, onOpen, onLocate, onAdd, onToggleDone, c
                             {(dragProvided, dragSnap) => (
                           <PlannerCard
                             item={item}
-                            root={root}
+                            root={root!}
                             labels={labels}
                             fullLabels={fullLabels}
                             where={where}
