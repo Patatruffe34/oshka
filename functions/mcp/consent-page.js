@@ -10,7 +10,7 @@
  * only the resulting ID token is posted back, to /oauth/approve.
  */
 
-const FIREBASE_SDK = "https://www.gstatic.com/firebasejs/12.11.0";
+const FIREBASE_SDK = "https://www.gstatic.com/firebasejs/12.19.0";
 
 /** JSON that can sit inside a <script> without closing it */
 const embed = (value) => JSON.stringify(value).replace(/</g, "\\u003c");

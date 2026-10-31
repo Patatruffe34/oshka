@@ -5,7 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { I18nProvider } from "../lib/i18n";
 import { makeCard, dayFromNow } from "../lib/board-utils";
 
-const firestore = vi.hoisted(() => ({ getDoc: vi.fn(), setDoc: vi.fn(), onSnapshot: vi.fn(), doc: vi.fn(() => ({})) }));
+const firestore = vi.hoisted(() => ({ getDoc: vi.fn(), setDoc: vi.fn(), runTransaction: vi.fn(), onSnapshot: vi.fn(), doc: vi.fn(() => ({})) }));
 vi.mock("firebase/firestore", () => firestore);
 vi.mock("../lib/firebase", () => ({ db: {} }));
 vi.mock("../hooks/useAuth", () => ({ useAuth: () => ({ user: { uid: "test-user", email: "test@example.com" }, loading: false }) }));
@@ -19,6 +19,15 @@ beforeEach(() => {
   localStorage.setItem("oshka_tabs", JSON.stringify({ tabs: [{ id: "plan", view: "week", segments: [] }, { id: "board", segments: [] }], activeId: "plan" }));
   vi.spyOn(window, "matchMedia").mockImplementation(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
   const board = { columns: [{ id: "tasks", title: "Tasks", cards: [{ ...makeCard("Existing task"), dueAt: dayFromNow(0) }] }], inbox: [makeCard("Inbox task")] };
+  firestore.runTransaction.mockImplementation(async (_db, callback) => {
+    let written;
+    const result = await callback({ get: firestore.getDoc, set: (ref, data) => { written = [ref, data]; } });
+    if (written) {
+      await firestore.setDoc(...written);
+      firestore.getDoc.mockResolvedValue({ exists: () => true, data: () => written[1] });
+    }
+    return result;
+  });
   firestore.getDoc.mockResolvedValue({ exists: () => true, data: () => ({ boardJson: JSON.stringify(board) }) });
   firestore.onSnapshot.mockReturnValue(() => {});
   firestore.setDoc.mockResolvedValue(undefined);

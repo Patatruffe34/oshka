@@ -12,7 +12,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "seed:local": "node scripts/seed-emulator.mjs",
-    "build:functions": "vite build --config vite.functions.config.js"
+    "build:functions": "vite build --config vite.functions.config.js",
+    "pretest": "npm run build:functions",
+    "pretest:watch": "npm run build:functions"
   },
   "dependencies": {
     "@hello-pangea/dnd": "^18.0.1",
@@ -24,16 +26,25 @@
     "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
-    "@eslint/js": "^9.39.4",
+    "@eslint/js": "^10.0.1",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
-    "eslint": "^9.39.4",
-    "eslint-plugin-react-hooks": "^7.0.1",
-    "eslint-plugin-react-refresh": "^0.5.2",
+    "eslint": "^10.14.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.7",
     "globals": "^17.4.0",
     "happy-dom": "^21.0.4",
     "vite": "^8.0.1",
     "vitest": "^4.1.11"
+  },
+  "overrides": {
+    "@firebase/firestore": {
+      "@grpc/grpc-js": "^1.14.3"
+    },
+    "minimatch": "^11.0.2"
+  },
+  "engines": {
+    "node": ">=22.12 <23"
   }
 }

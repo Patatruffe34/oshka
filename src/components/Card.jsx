@@ -79,7 +79,9 @@ export default function Card({
      always wins — this only fills a silence. */
   const inside = !card.dueAt && hasBoard && !card.done ? nextDueInside(card.board) : null;
   const insideDue = inside ? dueState(inside, false) : null;
-  const { isUrl, preview, loading } = useLinkPreview(card.title);
+  const [previewAllowedUrl, setPreviewAllowedUrl] = useState(null);
+  const previewEnabled = previewAllowedUrl === card.title;
+  const { isUrl, preview, loading } = useLinkPreview(card.title, previewEnabled);
   const checkRef = useRef(null);
 
   const tick = () => {
@@ -414,7 +416,7 @@ export default function Card({
       {/* Link preview — full width below */}
       {isUrl && (
         <div className="link-preview" onClick={stop}>
-          {loading ? (
+          {!previewEnabled ? <button className="btn-ghost-sm" onClick={() => setPreviewAllowedUrl(card.title)}>{t("card.load_preview")}</button> : loading ? (
             <div className="link-preview-loading">
               <span className="link-preview-spinner" />
             </div>
@@ -429,6 +431,7 @@ export default function Card({
                 <div className="link-preview-img-wrap">
                   <img
                     src={preview.image}
+                    referrerPolicy="no-referrer"
                     alt=""
                     className="link-preview-img"
                     onError={(e) => { e.target.style.display = "none"; }}

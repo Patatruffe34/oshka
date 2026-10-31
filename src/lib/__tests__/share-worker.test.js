@@ -14,6 +14,25 @@ function worker(fetch) {
 }
 
 describe("share target service worker", () => {
+  it.each(["/authorize?state=private", "/oauth/approve", "/token", "/integrations/gmail/link", "/integrations/slack/link", "/?oobCode=secret", "/__/auth/handler", "/.well-known/oauth-authorization-server"])("never intercepts sensitive route %s", (path) => {
+    const fetch = vi.fn();
+    const { listeners, caches } = worker(fetch);
+    const respondWith = vi.fn();
+    listeners.fetch({ request: { method: "GET", url: `https://oshka.test${path}`, mode: "navigate" }, respondWith });
+    expect(respondWith).not.toHaveBeenCalled();
+    expect(caches.open).not.toHaveBeenCalled();
+  });
+  it("does not cache no-store responses or authenticated static requests", async () => {
+    const fetch = vi.fn(async () => new Response("private", { headers: { "Cache-Control": "no-store" } }));
+    const { listeners, caches } = worker(fetch);
+    let result;
+    listeners.fetch({ request: { method: "GET", url: "https://oshka.test/", mode: "navigate" }, respondWith: (p) => { result = p; } });
+    await result;
+    expect(caches.open).not.toHaveBeenCalled();
+    const respondWith = vi.fn();
+    listeners.fetch({ request: { method: "GET", url: "https://oshka.test/", headers: new Headers({ Authorization: "Bearer secret" }) }, respondWith });
+    expect(respondWith).not.toHaveBeenCalled();
+  });
   it("leaves shortcut attachments to the browser instead of replaying a cached preview", () => {
     const fetch = vi.fn();
     const { listeners, caches } = worker(fetch);

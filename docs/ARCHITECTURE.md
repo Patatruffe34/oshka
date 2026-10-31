@@ -41,20 +41,30 @@ view will need rethinking.
 settings. It writes to Firestore with a delay, and listens to remote changes
 with `onSnapshot`.
 
-Two guards protect this loop, and **both come from a data-loss bug**:
+Each authenticated UID owns a separate React workspace and sync session. Changing
+accounts unmounts its UI, history and timers; late reads and transactions cannot
+update the next account. Unsaved drafts remain scoped to their UID and browser
+tab for recovery when that account returns.
 
-```js
-if (dirty.current) return;                      // a local edit is in progress
-if (data.boardJson === lastWrittenJson.current) return;  // it is our own echo
-```
+Saving uses a Firestore transaction and a three-way merge of the last acknowledged
+state, the submitted draft and the current server document. Entity arrays merge
+by id; independent edits and Inbox captures survive. Competing field edits,
+delete/edit conflicts, incompatible reorderings and duplicate moves fail visibly.
+The transaction does not write on a merge conflict. Changes typed while a commit
+is pending are rebased onto the committed result and saved in a later transaction.
 
-Without the first, a remote update arriving mid-keystroke overwrote what was
-being typed. Without the second, every save came back through the listener and
-triggered a render.
+Snapshots arriving during a local edit do not replace the editor; the next
+transaction reads the latest server state. When a remote update is incorporated,
+undo history is cleared so an old whole-tree snapshot cannot erase that update.
+Settings, favorites and trash participate in the comparison, not just boardJson.
 
-> **Known weakness.** The first guard *drops* the remote update instead of
-> replaying it later. With two devices active at the same time, a change can be
-> lost. This has not been addressed yet.
+Before the debounce, drafts are persisted in localStorage with their merge base.
+Transactions need connectivity: an offline draft stays local and retries on the
+browser's online event. A failed write remains dirty, with a visible retry/export
+notice. Oversized documents are rejected before sending. Other tabs' drafts can
+be recovered explicitly; they are never silently written over. Export before
+choosing the saved version to resolve a conflict. Browsers without available
+storage show a warning and require keeping the tab open until saving or export.
 
 ### Mutating anywhere in the tree
 
@@ -328,10 +338,16 @@ Agenda, pinned on the left and not movable.
 
 ## Offline
 
-Firestore is configured with `persistentLocalCache`. Writes made without
-network are queued and sent again on return; reads come from the cache.
+Firestore is configured with `persistentLocalCache` for cached reads. App edits
+are persisted as account- and tab-scoped drafts before their debounce; reconnect
+retries the transaction against a current server snapshot. There is no blind
+whole-document offline write queue.
 
-The service worker (`public/sw.js`) serves the shell: **network first for the
+The service worker (`public/sw.js`) only handles an explicit list of public
+static files and hashed assets. OAuth, integration APIs, authenticated requests
+and query-string URLs bypass CacheStorage. `/share` fetches only the canonical
+shell. Responses marked `no-store` are not cached. The version bump removes
+older caches that may contain auth URLs. For allowed static files it serves the shell: **network first for the
 document**, cache first for versioned files. Hosting headers follow the same
 logic — `no-cache` on the entry point and the worker, `immutable` on
 `/assets/**`.
@@ -412,9 +428,9 @@ through the functions the tests already cover. Default settings live in
 
 **Two writers.** Each tool reads, modifies and rewrites `boardJson` in a
 transaction; trash, favourites and settings are not touched. The app receives
-the change through its `onSnapshot`. It therefore inherits the known weakness:
-an MCP write arriving during an ongoing local edit can be overwritten by the
-following save. No tool deletes: they archive.
+the change through its `onSnapshot` or merges it with the next local transaction.
+A competing edit remains a visible conflict instead of overwriting server data.
+No tool deletes: they archive.
 
 **Everything goes through the app's domain.** Hosting rewrites send `/mcp`,
 `/.well-known/oauth-*`, `/authorize`, `/token`, `/register`, `/revoke` and

@@ -6,7 +6,7 @@ import { I18nProvider } from "../lib/i18n";
 import { readPendingShare, stageIncomingShare } from "../lib/share-target";
 
 const state = vi.hoisted(() => ({ user: { uid: "share-user", email: "test@example.com" } }));
-const firestore = vi.hoisted(() => ({ getDoc: vi.fn(), setDoc: vi.fn(), onSnapshot: vi.fn(), doc: vi.fn(() => ({})) }));
+const firestore = vi.hoisted(() => ({ getDoc: vi.fn(), setDoc: vi.fn(), runTransaction: vi.fn(), onSnapshot: vi.fn(), doc: vi.fn(() => ({})) }));
 vi.mock("firebase/firestore", () => firestore);
 vi.mock("../lib/firebase", () => ({ db: {} }));
 vi.mock("../hooks/useAuth", () => ({ useAuth: () => ({ user: state.user, loading: false }) }));
@@ -19,6 +19,15 @@ beforeEach(() => {
   state.user = { uid: "share-user", email: "test@example.com" };
   localStorage.setItem("inceptio_lang", "en");
   vi.spyOn(window, "matchMedia").mockImplementation(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
+  firestore.runTransaction.mockImplementation(async (_db, callback) => {
+    let written;
+    const result = await callback({ get: firestore.getDoc, set: (ref, data) => { written = [ref, data]; } });
+    if (written) {
+      await firestore.setDoc(...written);
+      firestore.getDoc.mockResolvedValue({ exists: () => true, data: () => written[1] });
+    }
+    return result;
+  });
   firestore.getDoc.mockResolvedValue({ exists: () => true, data: () => ({ boardJson: JSON.stringify({ columns: [] }) }) });
   firestore.onSnapshot.mockReturnValue(() => {});
   firestore.setDoc.mockResolvedValue(undefined);
