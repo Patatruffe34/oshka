@@ -15,9 +15,11 @@ const PATTERNS = {
   threshold: 10,
 };
 
-export function buzz(kind) {
+export type BuzzKind = keyof typeof PATTERNS;
+
+export function buzz(kind: BuzzKind | number): void {
   try {
-    navigator.vibrate?.(PATTERNS[kind] ?? kind);
+    navigator.vibrate?.(typeof kind === "number" ? kind : PATTERNS[kind]);
   } catch {
     // Some browsers throw when vibration is blocked; it was only a nicety
   }

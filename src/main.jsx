@@ -1,6 +1,6 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { I18nProvider } from "./lib/i18n.jsx";
+import { I18nProvider } from "./lib/i18n";
 import App from "./App.jsx";
 import LoaderLab from "./components/LoaderLab.jsx";
 import { stageIncomingShare } from "./lib/share-target";

@@ -1,8 +1,10 @@
+import type { Board } from "./types";
+
 /** Include all descendants of an archived card, even unarchived ones. */
-export function archiveSummary(board) {
+export function archiveSummary(board: Board | undefined): { archived: number; total: number } {
   let archived = 0;
   let total = 0;
-  const walk = (current, removing = false) => {
+  const walk = (current: Board | undefined, removing = false) => {
     for (const col of current?.columns ?? []) {
       for (const card of col.cards) {
         if (card.archived) archived++;
@@ -17,7 +19,7 @@ export function archiveSummary(board) {
 }
 
 /** Only explicitly finished, unarchived cards are candidates for bulk archive. */
-export function completedCardCount(board) {
+export function completedCardCount(board: Board | undefined): number {
   let count = 0;
   for (const col of board?.columns ?? []) {
     for (const card of col.cards) {
@@ -29,7 +31,7 @@ export function completedCardCount(board) {
 }
 
 /** Keep card contents and metadata intact; this operation is undoable. */
-export function archiveCompletedCards(board) {
+export function archiveCompletedCards<B extends Board | undefined>(board: B): B {
   if (!board?.columns) return board;
   let changed = false;
   const columns = board.columns.map((col) => {
@@ -49,7 +51,7 @@ export function archiveCompletedCards(board) {
 }
 
 /** Permanent cleanup: keep live cards and board metadata, without a trash copy. */
-export function purgeArchivedCards(board) {
+export function purgeArchivedCards<B extends Board | undefined>(board: B): B {
   if (!board?.columns) return board;
   let changed = false;
   const columns = board.columns.map((col) => {

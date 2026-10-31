@@ -5,13 +5,13 @@
  * UTC has already moved on — and "today" is what the Agenda and the due badges
  * are about.
  */
-export function localDay(date = new Date()) {
-  const pad = (n) => String(n).padStart(2, "0");
+export function localDay(date = new Date()): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
 /** Time left before the next local midnight, clock changes included */
-export function msUntilNextDay(date = new Date()) {
+export function msUntilNextDay(date = new Date()): number {
   const next = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1);
-  return next - date;
+  return next.getTime() - date.getTime();
 }

@@ -3,11 +3,12 @@
  * the outer scroller and preserve each mobile lane's reading position with
  * a content margin. This must run before the engine measures its targets.
  */
-export function preparePlannerDrag(wrap) {
+export function preparePlannerDrag(wrap: HTMLElement | null): () => void {
   if (!wrap) return () => {};
-  const lanes = [...wrap.querySelectorAll(".planner-lane")].map((lane) => {
-    const body = lane.querySelector(".planner-lane-body");
-    const content = lane.querySelector(".planner-lane-content");
+  // The lane markup always holds both, see PlannerLane
+  const lanes = [...wrap.querySelectorAll<HTMLElement>(".planner-lane")].map((lane) => {
+    const body = lane.querySelector<HTMLElement>(".planner-lane-body")!;
+    const content = lane.querySelector<HTMLElement>(".planner-lane-content")!;
     return {
       lane, body, content,
       top: body.scrollTop,

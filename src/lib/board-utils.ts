@@ -1,4 +1,18 @@
 import { PALETTE } from "./palette";
+import type {
+  Board,
+  Card,
+  Checklist,
+  ChecklistItem,
+  Column,
+  Id,
+  IsoDateTime,
+  IsoDay,
+  Label,
+  PathSegment,
+  RootBoard,
+  TitledSegment,
+} from "./types";
 
 const ID_ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyz";
 
@@ -7,14 +21,14 @@ const ID_ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyz";
  * Ids are used as DnD draggableIds and as URL hash segments, so a collision
  * silently breaks drag & drop — Math.random() with 7 chars was too tight.
  */
-export const uid = (len = 12) => {
+export const uid = (len = 12): Id => {
   const bytes = crypto.getRandomValues(new Uint8Array(len));
   let out = "";
   for (let i = 0; i < len; i++) out += ID_ALPHABET[bytes[i] % 36];
   return out;
 };
 
-export const makeCard = (title) => ({
+export const makeCard = (title: string): Card => ({
   id: uid(),
   title,
   description: "",
@@ -30,14 +44,14 @@ export const makeCard = (title) => ({
 });
 
 /** Trello ships a set of unnamed coloured labels; naming them is optional. */
-export const makeDefaultLabels = () =>
+export const makeDefaultLabels = (): Label[] =>
   PALETTE.slice(0, 6).map((c) => ({ id: uid(), name: "", color: c.id }));
 
-export const makeChecklist = (title) => ({ id: uid(), title, items: [] });
+export const makeChecklist = (title: string): Checklist => ({ id: uid(), title, items: [] });
 
-export const makeChecklistItem = (text) => ({ id: uid(), text, done: false });
+export const makeChecklistItem = (text: string): ChecklistItem => ({ id: uid(), text, done: false });
 
-export const makeCol = (title) => ({
+export const makeCol = (title: string): Column => ({
   id: uid(),
   title,
   emoji: "",
@@ -45,14 +59,14 @@ export const makeCol = (title) => ({
   cards: [],
 });
 
-export const deepClone = (obj) => JSON.parse(JSON.stringify(obj));
+export const deepClone = <T>(obj: T): T => JSON.parse(JSON.stringify(obj));
 
 /**
  * Walk down a path of {colId, cardId} segments.
  * Returns null when the path is stale (a column or card no longer exists),
  * so callers can decide what to do instead of silently landing elsewhere.
  */
-export const resolveBoardAtPath = (rootBoard, path) => {
+export const resolveBoardAtPath = (rootBoard: Board, path: readonly PathSegment[]): Board | null => {
   let current = rootBoard;
   for (const { colId, cardId } of path) {
     const col = current.columns.find((c) => c.id === colId);
@@ -65,7 +79,7 @@ export const resolveBoardAtPath = (rootBoard, path) => {
 };
 
 /** Same walk, but falls back to the deepest board still reachable. */
-export const getBoardAtPath = (rootBoard, path) => {
+export const getBoardAtPath = (rootBoard: Board, path: readonly PathSegment[]): Board => {
   let current = rootBoard;
   for (const { colId, cardId } of path) {
     const col = current.columns.find((c) => c.id === colId);
@@ -81,7 +95,11 @@ export const getBoardAtPath = (rootBoard, path) => {
  * Clone the tree and run updaterFn on the board sitting at `path`.
  * Returns the original tree untouched if the path went stale mid-walk.
  */
-export const setAtPath = (rootBoard, path, updaterFn) => {
+export const setAtPath = (
+  rootBoard: RootBoard,
+  path: readonly PathSegment[],
+  updaterFn: (board: Board) => Board,
+): RootBoard => {
   if (path.length === 0) return updaterFn(deepClone(rootBoard));
   const clone = deepClone(rootBoard);
   let ref = clone;
@@ -106,7 +124,14 @@ export const setAtPath = (rootBoard, path, updaterFn) => {
  * a drop would cost as much as the tree is big. One clone, then every card is
  * reached inside it.
  */
-export const applyRanks = (rootBoard, entries) => {
+/** A card named by where it lives, for writing an order across boards */
+export interface RankEntry {
+  segments: PathSegment[];
+  colId: Id;
+  cardId: Id;
+}
+
+export const applyRanks = (rootBoard: RootBoard, entries: readonly RankEntry[]): RootBoard => {
   const clone = deepClone(rootBoard);
   entries.forEach(({ segments, colId, cardId }, i) => {
     const board = getBoardAtPath(clone, segments);
@@ -119,8 +144,11 @@ export const applyRanks = (rootBoard, entries) => {
 };
 
 /** Resolve colId:cardId pairs into a full path with titles from board data */
-export const resolvePathFromIds = (rootBoard, segments) => {
-  const resolved = [];
+export const resolvePathFromIds = (
+  rootBoard: Board | null | undefined,
+  segments: readonly PathSegment[],
+): TitledSegment[] => {
+  const resolved: TitledSegment[] = [];
   let current = rootBoard;
   for (const { colId, cardId } of segments) {
     // The tree arrives after the first render, and a card's board is only
@@ -136,12 +164,12 @@ export const resolvePathFromIds = (rootBoard, segments) => {
 };
 
 // ── Accessors tolerant of cards written before a field existed ──
-export const cardLabels = (card) => card.labels || [];
-export const cardChecklists = (card) => card.checklists || [];
-export const boardLabels = (root) => root?.labels || [];
+export const cardLabels = (card: Pick<Card, "labels">): Id[] => card.labels || [];
+export const cardChecklists = (card: Pick<Card, "checklists">): Checklist[] => card.checklists || [];
+export const boardLabels = (root: RootBoard | null | undefined): Label[] => root?.labels || [];
 
 /** Ticked / total across every checklist on a card */
-export const checklistProgress = (card) => {
+export const checklistProgress = (card: Pick<Card, "checklists">): { done: number; total: number } => {
   let done = 0;
   let total = 0;
   for (const list of cardChecklists(card)) {
@@ -157,13 +185,19 @@ export const checklistProgress = (card) => {
  * How a due date should read today: overdue, due today, coming up, or far off.
  * A done card is never overdue — finishing it settles the deadline.
  */
-export const dueState = (dueAt, done, now = new Date()) => {
+export type DueState = "done" | "overdue" | "today" | "tomorrow" | "soon" | "upcoming";
+
+export const dueState = (
+  dueAt: string | null | undefined,
+  done: boolean,
+  now = new Date(),
+): DueState | null => {
   if (!dueAt) return null;
   if (done) return "done";
   const due = new Date(dueAt);
   if (Number.isNaN(due.getTime())) return null;
 
-  const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
   const days = Math.round((startOfDay(due) - startOfDay(now)) / 86400000);
 
   if (days < 0) return "overdue";
@@ -178,9 +212,9 @@ export const dueState = (dueAt, done, now = new Date()) => {
  * Called when a label is deleted so no card keeps a dangling reference.
  * Returns how many cards were touched.
  */
-export const stripLabelFromTree = (board, labelId) => {
+export const stripLabelFromTree = (board: Board | undefined, labelId: Id): number => {
   let touched = 0;
-  const walk = (b) => {
+  const walk = (b: Board | undefined) => {
     if (!b?.columns) return;
     for (const col of b.columns) {
       for (const card of col.cards) {
@@ -198,13 +232,13 @@ export const stripLabelFromTree = (board, labelId) => {
 };
 
 /** Cards visible in a column — archived ones are hidden from the board */
-export const visibleCards = (col) => col.cards.filter((c) => !c.archived);
+export const visibleCards = (col: Column): Card[] => col.cards.filter((c) => !c.archived);
 
-export const countSubItems = (board) =>
+export const countSubItems = (board: Board): number =>
   board.columns.reduce((acc, col) => acc + visibleCards(col).length, 0);
 
 /** Done / total among visible cards of a sub-board, for the progress badge */
-export const subBoardProgress = (board) => {
+export const subBoardProgress = (board: Board): { done: number; total: number } => {
   let done = 0;
   let total = 0;
   for (const col of board.columns) {
@@ -224,7 +258,7 @@ export const subBoardProgress = (board) => {
  */
 export const DONE_COLUMN_MARK = "\u2705";
 
-export const isDoneColumn = (col) => (col?.emoji || "").includes(DONE_COLUMN_MARK);
+export const isDoneColumn = (col: Pick<Column, "emoji"> | null | undefined): boolean => (col?.emoji || "").includes(DONE_COLUMN_MARK);
 
 /**
  * Whether a board is the kind of thing that gets finished at all.
@@ -233,7 +267,7 @@ export const isDoneColumn = (col) => (col?.emoji || "").includes(DONE_COLUMN_MAR
  * showing them as 0% complete would be reading a goal into them that is not
  * there.
  */
-export const hasDoneColumn = (board) => (board?.columns ?? []).some(isDoneColumn);
+export const hasDoneColumn = (board: Board | null | undefined): boolean => (board?.columns ?? []).some(isDoneColumn);
 
 /**
  * Move a card into the board's ✅ column, in place, on an already-cloned board.
@@ -243,12 +277,13 @@ export const hasDoneColumn = (board) => (board?.columns ?? []).some(isDoneColumn
  * is done. Returns the destination column id, or null when there is nothing to
  * do — no ✅ column, or the card is already in it.
  */
-export const fileUnderDone = (board, colId, cardId) => {
+export const fileUnderDone = (board: Board | null | undefined, colId: Id, cardId: Id): Id | null => {
   const target = board?.columns?.find(isDoneColumn);
-  if (!target || target.id === colId) return null;
+  if (!board || !target || target.id === colId) return null;
   const col = board.columns.find((c) => c.id === colId);
-  const index = col?.cards.findIndex((c) => c.id === cardId);
-  if (index == null || index < 0) return null;
+  if (!col) return null;
+  const index = col.cards.findIndex((c) => c.id === cardId);
+  if (index < 0) return null;
   const [card] = col.cards.splice(index, 1);
   target.cards.push(card);
   return target.id;
@@ -258,7 +293,12 @@ export const fileUnderDone = (board, colId, cardId) => {
  * Mark one card done, in place, on an already-cloned board.
  * False when there is nothing to do — no such card, or it was done already.
  */
-export const markCardDone = (board, colId, cardId, at = new Date().toISOString()) => {
+export const markCardDone = (
+  board: Board | null | undefined,
+  colId: Id,
+  cardId: Id,
+  at: IsoDateTime = new Date().toISOString(),
+): boolean => {
   const card = board?.columns
     ?.find((c) => c.id === colId)
     ?.cards.find((c) => c.id === cardId);
@@ -280,12 +320,15 @@ export const markCardDone = (board, colId, cardId, at = new Date().toISOString()
  * undone, and finishing them would quietly rewrite history nobody asked about.
  * Cards already done keep the date they were done on, for the same reason.
  */
-export const markBranchDone = (board, { stamp, file = false } = {}) => {
+export const markBranchDone = (
+  board: Board | null | undefined,
+  { stamp, file = false }: { stamp?: IsoDateTime; file?: boolean } = {},
+): number => {
   const at = stamp ?? new Date().toISOString();
   let count = 0;
-  const walk = (b) => {
+  const walk = (b: Board | null | undefined) => {
     if (!b?.columns) return;
-    const hits = [];
+    const hits: { colId: Id; card: Card }[] = [];
     for (const col of b.columns) {
       for (const card of visibleCards(col)) {
         if (!card.done) hits.push({ colId: col.id, card });
@@ -315,9 +358,9 @@ export const markBranchDone = (board, { stamp, file = false } = {}) => {
  * what should show. Done cards do not count, but their branches are still
  * walked: finishing a parent does not finish what it contains.
  */
-export const nextDueInside = (board) => {
-  let best = null;
-  const walk = (b) => {
+export const nextDueInside = (board: Board | null | undefined): string | null => {
+  let best: string | null = null;
+  const walk = (b: Board | null | undefined) => {
     for (const col of b?.columns ?? []) {
       for (const card of visibleCards(col)) {
         if (!card.done && card.dueAt) {
@@ -339,13 +382,21 @@ export const nextDueInside = (board) => {
  * levels of board hang below, which is the thing this product is about and the
  * thing no other view of a card tells you.
  */
-export const subBoardStats = (board, now = new Date()) => {
+export interface SubBoardStats {
+  columns: number;
+  cards: number;
+  done: number;
+  overdue: number;
+  depth: number;
+}
+
+export const subBoardStats = (board: Board | null | undefined, now = new Date()): SubBoardStats => {
   let cards = 0;
   let done = 0;
   let overdue = 0;
   let depth = 0;
 
-  const walk = (b, level) => {
+  const walk = (b: Board | null | undefined, level: number) => {
     if (!b?.columns?.length) return;
     depth = Math.max(depth, level);
     for (const col of b.columns) {
@@ -370,8 +421,8 @@ export const subBoardStats = (board, now = new Date()) => {
  * the move could not be applied (unknown column, index out of range).
  */
 export const moveCardBetweenColumns = (
-  board, sourceColId, destColId, sourceIdx, destIdx
-) => {
+  board: Board, sourceColId: Id, destColId: Id, sourceIdx: number, destIdx: number
+): boolean => {
   const sourceCol = board.columns.find((c) => c.id === sourceColId);
   const destCol = board.columns.find((c) => c.id === destColId);
   if (!sourceCol || !destCol) return false;
@@ -400,7 +451,21 @@ export const moveCardBetweenColumns = (
  * @param from {path, colId, cardId} — path to the board holding the card
  * @param to   {path, colId, index}  — path to the destination board
  */
-export const moveCardAcrossBoards = (root, from, to) => {
+/** Where a card sits, by the path to its board */
+export interface CardLocation {
+  path: readonly PathSegment[];
+  colId: Id;
+  cardId: Id;
+}
+
+/** Where something is put: a board, a column on it, a position (end by default) */
+export interface Destination {
+  path: readonly PathSegment[];
+  colId: Id;
+  index?: number | null;
+}
+
+export const moveCardAcrossBoards = (root: RootBoard, from: CardLocation, to: Destination): RootBoard | null => {
   // A card cannot land inside itself: the destination path must not go through it
   if (to.path.some((seg) => seg.cardId === from.cardId)) return null;
 
@@ -409,7 +474,7 @@ export const moveCardAcrossBoards = (root, from, to) => {
   const sourceBoard = resolveBoardAtPath(clone, from.path);
   const sourceCol = sourceBoard?.columns.find((c) => c.id === from.colId);
   const card = sourceCol?.cards.find((c) => c.id === from.cardId);
-  if (!card) return null;
+  if (!sourceCol || !card) return null;
 
   const destBoard = resolveBoardAtPath(clone, to.path);
   const destCol = destBoard?.columns.find((c) => c.id === to.colId);
@@ -429,11 +494,22 @@ export const moveCardAcrossBoards = (root, from, to) => {
  * `exclude` — a card id or a Set of them — drops those cards and everything
  * under them, since those are the destinations that would create a cycle.
  */
-export const listBoardDestinations = (root, exclude = null, rootLabel = "Root") => {
-  const excluded = exclude instanceof Set ? exclude : new Set(exclude ? [exclude] : []);
-  const out = [{ path: [], trail: [rootLabel], columns: root?.columns ?? [] }];
+export interface BoardDestination {
+  path: PathSegment[];
+  /** Titles from the root down, for display */
+  trail: string[];
+  columns: Column[];
+}
 
-  const walk = (board, path, trail) => {
+export const listBoardDestinations = (
+  root: Board | null | undefined,
+  exclude: Id | Set<Id> | null = null,
+  rootLabel = "Root",
+): BoardDestination[] => {
+  const excluded = exclude instanceof Set ? exclude : new Set(exclude ? [exclude] : []);
+  const out: BoardDestination[] = [{ path: [], trail: [rootLabel], columns: root?.columns ?? [] }];
+
+  const walk = (board: Board | null | undefined, path: PathSegment[], trail: string[]) => {
     if (!board?.columns) return;
     for (const col of board.columns) {
       for (const card of col.cards) {
@@ -453,9 +529,9 @@ export const listBoardDestinations = (root, exclude = null, rootLabel = "Root") 
 };
 
 /** Every card id living in a column, at any depth */
-export const collectCardIds = (column) => {
-  const ids = new Set();
-  const walk = (cards) => {
+export const collectCardIds = (column: Column): Set<Id> => {
+  const ids = new Set<Id>();
+  const walk = (cards: Card[]) => {
     for (const card of cards) {
       ids.add(card.id);
       for (const col of card.board?.columns ?? []) walk(col.cards);
@@ -472,12 +548,16 @@ export const collectCardIds = (column) => {
  * single card: the destination must not sit inside ANY card the column holds,
  * at any depth, or the column would end up containing its own new location.
  */
-export const moveColumnAcrossBoards = (root, from, to) => {
+export const moveColumnAcrossBoards = (
+  root: RootBoard,
+  from: { path: readonly PathSegment[]; colId: Id },
+  to: { path: readonly PathSegment[]; index?: number | null },
+): RootBoard | null => {
   const clone = deepClone(root);
 
   const sourceBoard = resolveBoardAtPath(clone, from.path);
   const column = sourceBoard?.columns.find((c) => c.id === from.colId);
-  if (!column) return null;
+  if (!sourceBoard || !column) return null;
 
   const held = collectCardIds(column);
   if (to.path.some((seg) => held.has(seg.cardId))) return null;
@@ -504,10 +584,38 @@ export const moveColumnAcrossBoards = (root, from, to) => {
  * headers. `isOpen(path)` decides which branches are expanded, so a large tree
  * costs only what is actually unfolded.
  */
-export const outlineRows = (root, isOpen, rootLabel = "Root") => {
-  const rows = [];
+export type OutlineRow =
+  | { kind: "root"; key: string; label: string; depth: number }
+  | {
+      kind: "column";
+      key: string;
+      column: Column;
+      depth: number;
+      path: TitledSegment[];
+      count: number;
+      done: number;
+    }
+  | {
+      kind: "card";
+      key: string;
+      card: Card;
+      colId: Id;
+      depth: number;
+      path: TitledSegment[];
+      childPath: TitledSegment[];
+      hasChildren: boolean;
+      open: boolean;
+    }
+  | { kind: "empty"; key: string; depth: number };
 
-  const walk = (board, path, depth) => {
+export const outlineRows = (
+  root: Board,
+  isOpen: (key: string) => boolean,
+  rootLabel = "Root",
+): OutlineRow[] => {
+  const rows: OutlineRow[] = [];
+
+  const walk = (board: Board, path: TitledSegment[], depth: number) => {
     for (const col of board.columns) {
       const cards = visibleCards(col);
       rows.push({
@@ -555,9 +663,9 @@ export const outlineRows = (root, isOpen, rootLabel = "Root") => {
 };
 
 /** Keys of every card that has a sub-board — for "expand all" */
-export const allBranchKeys = (root) => {
-  const keys = new Set();
-  const walk = (board, path) => {
+export const allBranchKeys = (root: Board): Set<string> => {
+  const keys = new Set<string>();
+  const walk = (board: Board, path: PathSegment[]) => {
     for (const col of board.columns) {
       for (const card of visibleCards(col)) {
         const childPath = [...path, { colId: col.id, cardId: card.id }];
@@ -573,9 +681,9 @@ export const allBranchKeys = (root) => {
 };
 
 /** Deep copy of a card with brand-new ids throughout, ready to be inserted */
-export const duplicateCard = (card) => {
+export const duplicateCard = (card: Card): Card => {
   const copy = deepClone(card);
-  const reid = (c) => {
+  const reid = (c: Card) => {
     c.id = uid();
     c.comments = (c.comments || []).map((m) => ({ ...m, id: uid() }));
     c.checklists = (c.checklists || []).map((l) => ({
@@ -593,24 +701,28 @@ export const duplicateCard = (card) => {
 };
 
 /** Comparators for sorting a column, all stable and archived-aware */
+type CardComparator = (a: Card, b: Card) => number;
+
 export const SORTS = {
   due: (a, b) => {
     // No date sinks to the bottom rather than pretending to be the epoch
     if (!a.dueAt && !b.dueAt) return 0;
     if (!a.dueAt) return 1;
     if (!b.dueAt) return -1;
-    return new Date(a.dueAt) - new Date(b.dueAt);
+    return new Date(a.dueAt).getTime() - new Date(b.dueAt).getTime();
   },
   title: (a, b) => (a.title || "").localeCompare(b.title || "", undefined, { sensitivity: "base" }),
   done: (a, b) => Number(a.done) - Number(b.done),
-};
+} satisfies Record<string, CardComparator>;
+
+export type SortKey = keyof typeof SORTS;
 
 /**
  * Sort the visible cards of a column in place, leaving archived ones where
  * they are — they are not shown, so moving them would be invisible churn.
  */
-export const sortColumnCards = (column, key) => {
-  const compare = SORTS[key];
+export const sortColumnCards = (column: Column, key: string): boolean => {
+  const compare = (SORTS as Record<string, CardComparator | undefined>)[key];
   if (!compare) return false;
 
   const visible = column.cards.filter((c) => !c.archived).sort(compare);
@@ -619,7 +731,7 @@ export const sortColumnCards = (column, key) => {
   return true;
 };
 
-export const EMPTY_BOARD = { columns: [] };
+export const EMPTY_BOARD: Board = { columns: [] };
 
 /**
  * ISO day, n days from today.
@@ -627,7 +739,7 @@ export const EMPTY_BOARD = { columns: [] };
  * Built from the local calendar rather than toISOString(), which converts to
  * UTC first and lands on the wrong day for anyone east or west of it.
  */
-export const dayFromNow = (n) => {
+export const dayFromNow = (n: number): IsoDay => {
   const d = new Date();
   d.setDate(d.getDate() + n);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(

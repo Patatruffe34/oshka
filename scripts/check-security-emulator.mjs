@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import { initializeApp, deleteApp } from "firebase/app";
 import { getAuth, connectAuthEmulator, createUserWithEmailAndPassword } from "firebase/auth";
 import { initializeFirestore, connectFirestoreEmulator, doc, setDoc, getDoc, runTransaction, terminate } from "firebase/firestore";
-import { mergeBoardState, encodeBoard } from "../src/lib/board-sync.js";
+import { mergeBoardState, encodeBoard } from "../src/lib/board-sync.ts";
 
 // Fail closed: this script must never discover real credentials or a real DB.
 assert.equal(process.env.GCLOUD_PROJECT, "demo-oshka");

@@ -2,7 +2,14 @@
 // `ink` is the text colour that wins the WCAG contrast check on that
 // background: black on all of them except grey, where white scores higher
 // (4.83 vs 4.34). Measured, not eyeballed.
-export const PALETTE = [
+export interface PaletteColor {
+  id: string;
+  label: string;
+  hex: string;
+  ink?: "dark" | "light";
+}
+
+export const PALETTE: PaletteColor[] = [
   { id: "violet", label: "Violet", hex: "#7c6ef8", ink: "dark" },
   { id: "blue", label: "Blue", hex: "#3b82f6", ink: "dark" },
   { id: "cyan", label: "Cyan", hex: "#06b6d4", ink: "dark" },
@@ -16,14 +23,14 @@ export const PALETTE = [
 ];
 
 /** Column colours include a "none" option; labels always carry a colour. */
-export const COL_COLORS = [{ id: "", label: "None", hex: "" }, ...PALETTE];
+export const COL_COLORS: PaletteColor[] = [{ id: "", label: "None", hex: "" }, ...PALETTE];
 
-export const colorHex = (id) => PALETTE.find((c) => c.id === id)?.hex || null;
+export const colorHex = (id: string): string | null => PALETTE.find((c) => c.id === id)?.hex || null;
 
 /** CSS class carrying the readable text colour for a label's background */
-export const inkClass = (colorId) =>
+export const inkClass = (colorId: string): string =>
   PALETTE.find((c) => c.id === colorId)?.ink === "light" ? " label-ink-light" : "";
 
 /** Sign/glyph colour that survives on a palette swatch, whatever the theme. */
-export const colorInk = (id) =>
+export const colorInk = (id: string): string =>
   PALETTE.find((c) => c.id === id)?.ink === "light" ? "#f5f5f7" : "#0e0e11";
