@@ -28,7 +28,8 @@ interface CardMenuProps {
   onEnterInTab?: () => void;
   onDelete: () => void;
   onArchive: () => void;
-  onUnarchive: () => void;
+  /** Planner cards are never archived, so they leave it out */
+  onUnarchive?: () => void;
   onToggleLabel: (labelId: Id) => void;
   onSetDue: (day: IsoDay | null) => void;
   onSetRepeat: (repeat: Repeat | null) => void;
@@ -37,7 +38,7 @@ interface CardMenuProps {
   onDeleteLabel: LabelPickerProps["onDelete"];
   /** The columns of the card's board, to move it between them */
   columns?: Column[];
-  colId: Id;
+  colId?: Id;
   onMoveTo?: (colId: Id) => void;
   onMoveElsewhere: () => void;
   onClose: () => void;
@@ -82,7 +83,7 @@ export default function CardMenu({
         {view === "move" ? (
           <ColumnPicker
             columns={columns!}
-            currentColId={colId}
+            currentColId={colId!}
             onPick={(destColId) => { onMoveTo!(destColId); onClose(); }}
             onElsewhere={() => { onMoveElsewhere(); onClose(); }}
           />
@@ -154,7 +155,7 @@ export default function CardMenu({
       </button>
 
       {card.archived ? (
-        <button className="card-menu-row" onClick={() => { onUnarchive(); onClose(); }}>
+        <button className="card-menu-row" onClick={() => { onUnarchive!(); onClose(); }}>
           <IconUnarchive size={15} />
           {t("archive.unarchive")}
           <kbd className="card-menu-key">A</kbd>

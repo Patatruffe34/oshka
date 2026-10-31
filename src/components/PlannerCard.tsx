@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type { DraggableProvidedDraggableProps, DraggableProvidedDragHandleProps } from "@hello-pangea/dnd";
 import { cardLabels, checklistProgress, subBoardProgress, getBoardAtPath } from "../lib/board-utils";
 import { isRepeating } from "../lib/repeat";
 import { colorHex, inkClass } from "../lib/palette";
@@ -8,9 +9,53 @@ import { useCardShortcuts } from "../hooks/useCardShortcuts";
 import { IconCompass, IconCheck } from "./icons";
 import CardMenu from "./CardMenu";
 import Popover from "./Popover";
+import type { CardMenuView } from "./CardMenu";
+import type { LabelHandlers, Point } from "./Card";
+import type { PlannedItem } from "../lib/planner";
+import type { Id, IsoDay, Label, Repeat, RootBoard } from "../lib/types";
+
+/** What a card in the Agenda can do, each aimed at the card's own board */
+export interface PlannerCardActions extends LabelHandlers {
+  onRename: (item: PlannedItem, title: string) => void;
+  onDelete: (item: PlannedItem) => void;
+  onArchive: (item: PlannedItem) => void;
+  onToggleLabel: (item: PlannedItem, labelId: Id) => void;
+  onSetDue: (item: PlannedItem, day: IsoDay | null) => void;
+  onSetRepeat: (item: PlannedItem, repeat: Repeat | null) => void;
+  onMoveTo: (item: PlannedItem, colId: Id) => void;
+  onMoveElsewhere: (item: PlannedItem) => void;
+  onEnterInTab: (item: PlannedItem) => void;
+}
+
+/** Where a card lives, in one line: its board, and the boards above it */
+export interface PlannerTrail {
+  ancestors?: string;
+  parent: string;
+  full: string;
+}
+
+export type LocateCard = (item: PlannedItem, options: { background: boolean }) => void;
+
+interface PlannerCardProps {
+  item: PlannedItem;
+  root: RootBoard;
+  labels: Label[];
+  /** Labels as named chips rather than dots */
+  fullLabels: boolean;
+  /** Written on the card where no group header says it */
+  where: PlannerTrail | null;
+  cardRef: (element: HTMLElement | null) => void;
+  draggableProps: DraggableProvidedDraggableProps;
+  dragHandleProps: DraggableProvidedDragHandleProps | null;
+  isDragging: boolean;
+  onOpen: (item: PlannedItem) => void;
+  onLocate: LocateCard;
+  onToggleDone: (item: PlannedItem, origin: Point) => void;
+  cardActions: PlannerCardActions;
+}
 
 /** A card keeps its source address while the Plan groups it by date. */
-export default function PlannerCard({ item, root, labels, fullLabels, where, cardRef, draggableProps, dragHandleProps, isDragging, onOpen, onLocate, onToggleDone, cardActions }) {
+export default function PlannerCard({ item, root, labels, fullLabels, where, cardRef, draggableProps, dragHandleProps, isDragging, onOpen, onLocate, onToggleDone, cardActions }: PlannerCardProps) {
   const { t, locale } = useI18n();
   const dateFmt = locale === "fr" ? "fr-FR" : "en-US";
   const { card } = item;
@@ -18,12 +63,12 @@ export default function PlannerCard({ item, root, labels, fullLabels, where, car
   const list = checklistProgress(card);
   const sub = subBoardProgress(card.board);
   const columns = getBoardAtPath(root, item.path)?.columns;
-  const menuRef = useRef(null);
-  const titleRef = useRef(null);
+  const menuRef = useRef<HTMLButtonElement>(null);
+  const titleRef = useRef<HTMLTextAreaElement>(null);
   const [hovered, setHovered] = useState(false);
   const [editing, setEditing] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [menuView, setMenuView] = useState("root");
+  const [menuView, setMenuView] = useState<CardMenuView>("root");
 
   useEffect(() => {
     if (!editing) return;
@@ -66,12 +111,12 @@ export default function PlannerCard({ item, root, labels, fullLabels, where, car
       /* Opening the card must not cost you the view you
          are planning from — it opens over it. */
       onClick={(e) => {
-        if (editing || e.target.closest("button, a, input, textarea")) return;
+        if (editing || (e.target as Element).closest("button, a, input, textarea")) return;
         if (e.metaKey || e.ctrlKey) onLocate(item, { background: true });
         else onOpen(item);
       }}
       onAuxClick={(e) => {
-        if (e.button !== 1 || e.target.closest("button, a, input, textarea")) return;
+        if (e.button !== 1 || (e.target as Element).closest("button, a, input, textarea")) return;
         e.preventDefault();
         onLocate(item, { background: true });
       }}
@@ -117,7 +162,7 @@ export default function PlannerCard({ item, root, labels, fullLabels, where, car
               <span
                 key={l.id}
                 className={`outline-label-dot label-pattern-${l.color}`}
-                style={{ backgroundColor: colorHex(l.color) }}
+                style={{ backgroundColor: colorHex(l.color) ?? undefined }}
                 title={[l.emoji, l.name].filter(Boolean).join(" ")}
               />
             )

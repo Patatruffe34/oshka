@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect } from "react";
+import { useRef, useState, useEffect, type KeyboardEvent, type MouseEvent } from "react";
 import {
   subBoardProgress,
   cardLabels,
@@ -18,6 +18,9 @@ import Popover from "./Popover";
 import CardMenu from "./CardMenu";
 import ProgressRing from "./ProgressRing";
 import { isComposingKey } from "../lib/text-entry";
+import type { CardMenuView } from "./CardMenu";
+import type { LabelPickerProps } from "./LabelPicker";
+import type { Card as CardModel, Column, Id, IsoDay, Label, Repeat } from "../lib/types";
 
 /* Long enough to catch a second click, short enough that opening a card does
    not feel laggy. Below the OS double-click threshold, so a deliberately slow
@@ -29,6 +32,43 @@ const DOUBLE_CLICK_MS = 200;
    [role=button] — the card itself carries that, so it would match every
    click on the card and swallow the lot. */
 const A_CONTROL = "button, a, input, textarea";
+
+/** Where on screen a card was ticked, for the confetti to start from */
+export interface Point {
+  x: number;
+  y: number;
+}
+
+/** What a card can do to the label set the whole tree shares */
+export interface LabelHandlers {
+  onAddLabel: LabelPickerProps["onAdd"];
+  onUpdateLabel: LabelPickerProps["onUpdate"];
+  onDeleteLabel: LabelPickerProps["onDelete"];
+}
+
+interface CardProps extends LabelHandlers {
+  card: CardModel;
+  onOpenDetail: (card: CardModel) => void;
+  onEnter: (card: CardModel) => void;
+  onEnterInTab?: (card: CardModel) => void;
+  onDelete: (cardId: Id) => void;
+  onRename: (cardId: Id, title: string) => void;
+  onToggleDone: (cardId: Id, origin: Point) => void;
+  onUnarchive: (cardId: Id) => void;
+  onArchive: (cardId: Id) => void;
+  onToggleLabel: (cardId: Id, labelId: Id) => void;
+  onSetDue: (cardId: Id, day: IsoDay | null) => void;
+  onSetRepeat: (cardId: Id, repeat: Repeat | null) => void;
+  /** The columns of the card's board; left out where it cannot be moved */
+  columns?: Column[];
+  colId?: Id;
+  onMoveTo?: (cardId: Id, colId: Id) => void;
+  onMoveElsewhere?: (card: CardModel) => void;
+  labels?: Label[];
+  isDragging?: boolean;
+  /** The id of the card just navigated to, to light it up */
+  spotlight?: Id | null;
+}
 
 export default function Card({
   card,
@@ -53,21 +93,21 @@ export default function Card({
   labels = [],
   isDragging,
   spotlight,
-}) {
+}: CardProps) {
   const { t } = useI18n();
-  const textareaRef = useRef(null);
-  const menuRef = useRef(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const menuRef = useRef<HTMLButtonElement>(null);
   const [editing, setEditing] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [menuView, setMenuView] = useState("root");
+  const [menuView, setMenuView] = useState<CardMenuView>("root");
   const [hovered, setHovered] = useState(false);
-  const clickTimer = useRef(null);
+  const clickTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const hasBoard = card.board.columns.length > 0;
   const progress = hasBoard ? subBoardProgress(card.board) : null;
   /* A ring says "this is heading somewhere", so only a board with a ✅ column
      gets one — a reference list or a brainstorm has nowhere to arrive. */
-  const ringed = hasBoard && progress.total > 0 && hasDoneColumn(card.board);
-  const complete = ringed && progress.done >= progress.total;
+  const ringed = hasBoard && progress!.total > 0 && hasDoneColumn(card.board);
+  const complete = ringed && progress!.done >= progress!.total;
   const commentCount = (card.comments || []).length;
   const hasDescription = Boolean(card.description?.trim());
   const cardLabelIds = cardLabels(card);
@@ -79,13 +119,13 @@ export default function Card({
      always wins — this only fills a silence. */
   const inside = !card.dueAt && hasBoard && !card.done ? nextDueInside(card.board) : null;
   const insideDue = inside ? dueState(inside, false) : null;
-  const [previewAllowedUrl, setPreviewAllowedUrl] = useState(null);
+  const [previewAllowedUrl, setPreviewAllowedUrl] = useState<string | null>(null);
   const previewEnabled = previewAllowedUrl === card.title;
   const { isUrl, preview, loading } = useLinkPreview(card.title, previewEnabled);
-  const checkRef = useRef(null);
+  const checkRef = useRef<HTMLButtonElement>(null);
 
   const tick = () => {
-    const rect = checkRef.current.getBoundingClientRect();
+    const rect = checkRef.current!.getBoundingClientRect();
     onToggleDone(card.id, {
       x: rect.left + rect.width / 2,
       y: rect.top + rect.height / 2,
@@ -139,20 +179,20 @@ export default function Card({
    * Telling them apart means waiting: there is no way to know a second click
    * is coming. Opening pays the delay because going in is the rarer move.
    */
-  const handleCardClick = (e) => {
-    if (editing || e.target.closest(A_CONTROL)) return;
+  const handleCardClick = (e: MouseEvent) => {
+    if (editing || (e.target as Element).closest(A_CONTROL)) return;
     clearTimeout(clickTimer.current);
     if (e.detail > 1) return; // the double-click handler has it
     clickTimer.current = setTimeout(() => onOpenDetail(card), DOUBLE_CLICK_MS);
   };
 
-  const handleCardDoubleClick = (e) => {
-    if (editing || e.target.closest(A_CONTROL)) return;
+  const handleCardDoubleClick = (e: MouseEvent) => {
+    if (editing || (e.target as Element).closest(A_CONTROL)) return;
     clearTimeout(clickTimer.current);
     onEnter(card);
   };
 
-  const handleTitleKeyDown = (e) => {
+  const handleTitleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     e.stopPropagation();
     if (isComposingKey(e)) return;
     if (e.key === "Enter" && !e.shiftKey) {
@@ -165,7 +205,7 @@ export default function Card({
     }
   };
 
-  const handleCardKeyDown = (e) => {
+  const handleCardKeyDown = (e: KeyboardEvent) => {
     if (editing) return;
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
@@ -173,14 +213,14 @@ export default function Card({
     }
   };
 
-  const handleToggleDone = (e) => {
+  const handleToggleDone = (e: MouseEvent) => {
     e.stopPropagation();
     // The click that ends a swipe: the swipe already did what it meant
     if (swipe.consumeTap()) return;
     tick();
   };
 
-  const stop = (e) => e.stopPropagation();
+  const stop = (e: MouseEvent) => e.stopPropagation();
 
   return (
     <>
@@ -281,9 +321,9 @@ export default function Card({
               {due && (
                 <span
                   className={`card-badge due-badge due-${due}`}
-                  title={repeats ? t(repeats, { n: card.repeat.every }) : t("due.title")}
+                  title={repeats ? t(repeats, { n: card.repeat!.every }) : t("due.title")}
                 >
-                  &#128197; {new Date(card.dueAt).toLocaleDateString(undefined, {
+                  &#128197; {new Date(card.dueAt!).toLocaleDateString(undefined, {
                     day: "numeric", month: "short",
                   })}
                   {/* Inside the date rather than beside it: the repetition is
@@ -318,12 +358,12 @@ export default function Card({
                   title={t("detail.open_board")}
                 >
                   {ringed ? (
-                    <ProgressRing id={card.id} done={progress.done} total={progress.total} />
+                    <ProgressRing id={card.id} done={progress!.done} total={progress!.total} />
                   ) : (
                     <span className="card-depth-dot" />
                   )}
-                  {progress.total > 0
-                    ? `${progress.done}/${progress.total}`
+                  {progress!.total > 0
+                    ? `${progress!.done}/${progress!.total}`
                     : t("board.empty_board")}
                 </span>
               )}
@@ -434,7 +474,7 @@ export default function Card({
                     referrerPolicy="no-referrer"
                     alt=""
                     className="link-preview-img"
-                    onError={(e) => { e.target.style.display = "none"; }}
+                    onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
                   />
                 </div>
               )}

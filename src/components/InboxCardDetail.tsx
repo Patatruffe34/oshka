@@ -1,13 +1,24 @@
-import CardDetail from "./CardDetail";
+import CardDetail, { type ChecklistActions } from "./CardDetail";
+import type { LabelHandlers } from "./Card";
 import { cardChecklists, cardLabels, dayFromNow, makeChecklist, makeChecklistItem } from "../lib/board-utils";
 import { normalizeRepeat } from "../lib/repeat";
+import type { Card, Checklist, ChecklistItem, Id, Label, PathSegment, RootBoard } from "../lib/types";
 
 /** Reuse the card detail UI, with all edits aimed explicitly at Inbox. */
-export default function InboxCardDetail({ card, root, labels, onUpdate, onFile, onClose, onAddLabel, onUpdateLabel, onDeleteLabel }) {
-  const update = (fields) => onUpdate(card.id, fields);
-  const lists = (updater) => update({ checklists: updater(cardChecklists(card)) });
-  const items = (listId, updater) => lists((all) => all.map((list) => list.id === listId ? { ...list, items: updater(list.items) } : list));
-  const checklistActions = {
+interface InboxCardDetailProps extends LabelHandlers {
+  card: Card;
+  root: RootBoard;
+  labels: Label[];
+  onUpdate: (id: Id, fields: Partial<Card>) => void;
+  onFile: (id: Id, path: PathSegment[], colId: Id) => unknown;
+  onClose: () => void;
+}
+
+export default function InboxCardDetail({ card, root, labels, onUpdate, onFile, onClose, onAddLabel, onUpdateLabel, onDeleteLabel }: InboxCardDetailProps) {
+  const update = (fields: Partial<Card>) => onUpdate(card.id, fields);
+  const lists = (updater: (all: Checklist[]) => Checklist[]) => update({ checklists: updater(cardChecklists(card)) });
+  const items = (listId: Id, updater: (all: ChecklistItem[]) => ChecklistItem[]) => lists((all) => all.map((list) => list.id === listId ? { ...list, items: updater(list.items) } : list));
+  const checklistActions: ChecklistActions = {
     add: (_c, _i, title) => lists((all) => [...all, makeChecklist(title)]),
     rename: (_c, _i, id, title) => lists((all) => all.map((list) => list.id === id ? { ...list, title } : list)),
     remove: (_c, _i, id) => lists((all) => all.filter((list) => list.id !== id)),

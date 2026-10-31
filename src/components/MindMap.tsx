@@ -1,9 +1,17 @@
-import { useState, useMemo, useRef, useCallback, useEffect } from "react";
-import { buildMindTree, radialLayout, allNodeKeys, keysBelowDepth } from "../lib/mindmap";
+import { useState, useMemo, useRef, useCallback, useEffect, type PointerEvent, type WheelEvent } from "react";
+import { buildMindTree, radialLayout, allNodeKeys, keysBelowDepth, type PlacedNode } from "../lib/mindmap";
 import { colorHex, colorInk } from "../lib/palette";
 import { dueState, cardLabels } from "../lib/board-utils";
 import ViewSwitch from "./ViewSwitch";
 import { useI18n } from "../lib/i18n";
+import type { Label, PathSegment, RootBoard } from "../lib/types";
+
+interface Viewport {
+  x: number;
+  y: number;
+  /** Zoom */
+  k: number;
+}
 
 const RADIUS_STEP = 112;
 const ZOOM_LIMITS = [0.25, 2.5];
@@ -12,7 +20,7 @@ const ZOOM_LIMITS = [0.25, 2.5];
 const JUMP_X = 22;
 
 /** Curved link between two placed nodes, bowing along the circle */
-function edgePath(from, to) {
+function edgePath(from: PlacedNode, to: PlacedNode) {
   // Control point on the parent's radius at the child's angle: the link leaves
   // the parent outward, then bends into the child's direction.
   const cx = Math.cos(to.angle) * from.radius;
@@ -26,19 +34,29 @@ function edgePath(from, to) {
  * A list tells you what is nested; this shows the shape — which branches carry
  * the weight, which are stubs, whether the whole thing is lopsided.
  */
-export default function MindMap({ root, labels, path, onGo, onOpenOutline, onClose }) {
+interface MindMapProps {
+  root: RootBoard;
+  labels: Label[];
+  /** Where you stand, marked on the map */
+  path: PathSegment[];
+  onGo: (path: PathSegment[]) => void;
+  onOpenOutline: () => void;
+  onClose: () => void;
+}
+
+export default function MindMap({ root, labels, path, onGo, onOpenOutline, onClose }: MindMapProps) {
   const { t } = useI18n();
   // A phone cannot hold six rings at a readable scale, so it opens on the
   // first ones and the rest unfolds on demand.
   const [collapsed, setCollapsed] = useState(() =>
     window.matchMedia("(max-width: 640px)").matches
       ? keysBelowDepth(buildMindTree(root, "", () => false), 3)
-      : new Set()
+      : new Set<string>()
   );
-  const [view, setView] = useState({ x: 0, y: 0, k: 1 });
-  const [hover, setHover] = useState(null);
-  const surfaceRef = useRef(null);
-  const drag = useRef(null);
+  const [view, setView] = useState<Viewport>({ x: 0, y: 0, k: 1 });
+  const [hover, setHover] = useState<string | null>(null);
+  const surfaceRef = useRef<HTMLDivElement>(null);
+  const drag = useRef<{ x: number; y: number; view: Viewport } | null>(null);
 
   const tree = useMemo(
     () => buildMindTree(root, t("header.root"), (k) => collapsed.has(k)),
@@ -85,7 +103,7 @@ export default function MindMap({ root, labels, path, onGo, onOpenOutline, onClo
 
   useEffect(() => { fit(); }, [fit]);
 
-  const toggle = (key) =>
+  const toggle = (key: string) =>
     setCollapsed((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
@@ -93,15 +111,15 @@ export default function MindMap({ root, labels, path, onGo, onOpenOutline, onClo
       return next;
     });
 
-  const enter = (p) => { onGo(p); onClose(); };
+  const enter = (p: PathSegment[]) => { onGo(p); onClose(); };
 
   // ── Pan & zoom ──
-  const onPointerDown = (e) => {
-    if (e.target.closest("[data-node]")) return; // let node clicks through
+  const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
+    if ((e.target as Element).closest("[data-node]")) return; // let node clicks through
     drag.current = { x: e.clientX, y: e.clientY, view };
     e.currentTarget.setPointerCapture(e.pointerId);
   };
-  const onPointerMove = (e) => {
+  const onPointerMove = (e: PointerEvent) => {
     if (!drag.current) return;
     setView({
       ...drag.current.view,
@@ -111,7 +129,7 @@ export default function MindMap({ root, labels, path, onGo, onOpenOutline, onClo
   };
   const endDrag = () => { drag.current = null; };
 
-  const onWheel = (e) => {
+  const onWheel = (e: WheelEvent) => {
     const el = surfaceRef.current;
     if (!el) return;
     const box = el.getBoundingClientRect();
@@ -128,7 +146,7 @@ export default function MindMap({ root, labels, path, onGo, onOpenOutline, onClo
   };
 
   useEffect(() => {
-    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
@@ -141,7 +159,7 @@ export default function MindMap({ root, labels, path, onGo, onOpenOutline, onClo
   // below that or the whole map opens with almost no labels at all.
   const labelDepth = view.k < 0.3 ? 1 : view.k < 0.62 ? 3 : Infinity;
 
-  const unfoldAll = () => setCollapsed(new Set());
+  const unfoldAll = () => setCollapsed(new Set<string>());
 
   return (
     <div className="mindmap">
@@ -194,9 +212,9 @@ export default function MindMap({ root, labels, path, onGo, onOpenOutline, onClo
               }
 
               const isColumn = n.kind === "column";
-              const hex = isColumn ? colorHex(n.color) : null;
-              const due = !isColumn ? dueState(n.card.dueAt, n.card.done) : null;
-              const own = !isColumn ? cardLabels(n.card) : [];
+              const hex = isColumn ? colorHex(n.color!) : null;
+              const due = !isColumn ? dueState(n.card!.dueAt, n.card!.done) : null;
+              const own = !isColumn ? cardLabels(n.card!) : [];
               const here = !isColumn && n.key.split("/").filter((_, i) => i % 2).join("/") === currentKey;
               // Labels on the left half read upside-down without this flip
               const flip = Math.cos(n.angle) < 0;
@@ -217,7 +235,7 @@ export default function MindMap({ root, labels, path, onGo, onOpenOutline, onClo
                   key={n.key}
                   data-node
                   className={`mm-node ${isColumn ? "mm-col" : "mm-card"}${
-                    !isColumn && n.card.done ? " done" : ""
+                    !isColumn && n.card!.done ? " done" : ""
                   }${here ? " here" : ""}`}
                   transform={`translate(${n.x} ${n.y})`}
                   onMouseEnter={() => setHover(n.key)}
@@ -225,7 +243,7 @@ export default function MindMap({ root, labels, path, onGo, onOpenOutline, onClo
                   /* Folding is the move you make over and over while reading the
                      map, so it gets the whole node. Entering a board leaves the
                      map entirely, so it gets its own target. */
-                  onClick={() => (canFold ? toggle(n.key) : canEnter && enter(goPath))}
+                  onClick={() => (canFold ? toggle(n.key) : canEnter && enter(goPath!))}
                 >
                   {/* Glyph and disc do not touch, and crossing the gap would
                       drop the hover that reveals the disc — leaving it visible
@@ -246,7 +264,7 @@ export default function MindMap({ root, labels, path, onGo, onOpenOutline, onClo
                   {canFold && (
                     <path
                       className="mm-sign"
-                      style={hex ? { stroke: colorInk(n.color) } : undefined}
+                      style={hex ? { stroke: colorInk(n.color!) } : undefined}
                       d={n.collapsed ? "M -3.5 0 H 3.5 M 0 -3.5 V 3.5" : "M -3.5 0 H 3.5"}
                     />
                   )}
@@ -255,7 +273,7 @@ export default function MindMap({ root, labels, path, onGo, onOpenOutline, onClo
                     <g className="mm-labels">
                       {labels.filter((l) => own.includes(l.id)).slice(0, 3).map((l, i) => (
                         <rect key={l.id} x={-9 + i * 7} y="-15" width="5" height="4" rx="1"
-                              style={{ fill: colorHex(l.color) }} />
+                              style={{ fill: colorHex(l.color) ?? undefined }} />
                       ))}
                     </g>
                   )}
@@ -272,9 +290,9 @@ export default function MindMap({ root, labels, path, onGo, onOpenOutline, onClo
                       {n.label || t("board.untitled")}
                       {/* Counts sat in the title's own colour and size, so they
                           read as part of the name. Set apart instead. */}
-                      {isColumn && n.count > 0 && (
+                      {isColumn && n.count! > 0 && (
                         <tspan className="mm-count" dx="7">
-                          {n.done > 0 ? `${n.done}/${n.count}` : n.count}
+                          {n.done! > 0 ? `${n.done}/${n.count}` : n.count}
                         </tspan>
                       )}
                       {/* A folded column already states its size, so +N there
@@ -291,7 +309,7 @@ export default function MindMap({ root, labels, path, onGo, onOpenOutline, onClo
                   {canEnter && (
                     <g
                       className="mm-jump"
-                      onClick={(e) => { e.stopPropagation(); enter(goPath); }}
+                      onClick={(e) => { e.stopPropagation(); enter(goPath!); }}
                     >
                       <title>{t("detail.open_board")}</title>
                       <circle r="9" cx={JUMP_X} cy="0" />

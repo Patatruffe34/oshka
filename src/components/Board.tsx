@@ -1,11 +1,30 @@
 import { useEffect, useRef } from "react";
 import { Droppable } from "@hello-pangea/dnd";
-import Column from "./Column";
+import Column, { type ColumnHandlers } from "./Column";
 import AddColumn from "./AddColumn";
-import BoardPresets from "./BoardPresets";
+import BoardPresets, { type PresetColumn } from "./BoardPresets";
 import { useDollTransition } from "../hooks/useDollTransition";
 import { useColumnSwipe } from "../hooks/useColumnSwipe";
 import { useMediaQuery } from "../hooks/useMediaQuery";
+import type { useBoardDrag } from "../hooks/useBoardDrag";
+import type { Board as BoardModel, Id, Label } from "../lib/types";
+
+interface BoardProps extends ColumnHandlers {
+  /** The board on screen; nothing is drawn until it has loaded */
+  board: BoardModel | null | undefined;
+  /** Mid-way through going into a card or back out of one */
+  navigating: boolean;
+  onAddCol: (title: string) => void;
+  labels: Label[];
+  labelFilter?: Id[];
+  drag: ReturnType<typeof useBoardDrag>;
+  /** Offered on an empty board; left out where presets make no sense */
+  onApplyPreset?: (columns: PresetColumn[]) => void;
+  zoneLabel: string;
+  /** Tab and position, to remember each view's scroll */
+  viewKey: string;
+  spotlight?: Id | null;
+}
 
 export default function Board({
   board,
@@ -39,7 +58,7 @@ export default function Board({
   zoneLabel,
   viewKey,
   spotlight,
-}) {
+}: BoardProps) {
   const { wrapRef, zoneRef, dragging, draggingColumn, zoneHot } = drag;
 
   /*
@@ -61,7 +80,7 @@ export default function Board({
   useEffect(() => {
     if (!spotlight) return;
     let tries = 0;
-    let timer = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const reach = () => {
       const el = wrapRef.current?.querySelector(`[data-card-id="${spotlight}"]`);
       if (el) {
@@ -80,7 +99,7 @@ export default function Board({
   const phone = useMediaQuery("(max-width: 640px)");
   useColumnSwipe(wrapRef, phone && !!board);
 
-  const scrolls = useRef(new Map());
+  const scrolls = useRef(new Map<string, number>());
   const shownView = useRef(viewKey);
   useEffect(() => {
     const el = wrapRef.current;
