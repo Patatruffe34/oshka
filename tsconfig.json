@@ -1,7 +1,6 @@
 {
   // Type checking only: Vite and Vitest strip the types themselves.
-  // The app is TypeScript throughout; the tests stay JavaScript, allowed
-  // alongside and left unchecked.
+  // The app and its tests; tsconfig.node.json covers the Vite configs.
   "compilerOptions": {
     "target": "ES2023",
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
@@ -9,8 +8,6 @@
     "moduleResolution": "bundler",
     "jsx": "react-jsx",
     "types": ["vite/client"],
-    "allowJs": true,
-    "checkJs": false,
     "noEmit": true,
     "strict": true,
     "noFallthroughCasesInSwitch": true,

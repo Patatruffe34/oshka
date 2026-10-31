@@ -19,7 +19,7 @@ export default defineConfig({
     target: "node22",
     rolldownOptions: {
       // Every package import, Node's built-ins included; only our own files go in
-      external: (id) => !id.startsWith(".") && !isAbsolute(id) && !id.startsWith("\0"),
+      external: (id: string) => !id.startsWith(".") && !isAbsolute(id) && !id.startsWith("\0"),
       output: { format: "cjs", entryFileNames: "index.cjs" },
     },
   },

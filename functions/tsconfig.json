@@ -1,5 +1,5 @@
 {
-  // Type checking only: vite.functions.config.js builds what runs.
+  // Type checking only: vite.functions.config.ts builds what runs.
   // Node, not the browser: no DOM types, and the modules from src/lib the
   // Functions import are checked again against this environment.
   "compilerOptions": {
