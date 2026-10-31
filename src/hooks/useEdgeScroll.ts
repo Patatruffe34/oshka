@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, type RefObject } from "react";
 
 /** How close to an edge the finger has to be, in pixels */
 const EDGE = 56;
@@ -29,28 +29,28 @@ export const NO_LIBRARY_AUTOSCROLL = { maxPixelScroll: 0 };
  * The library follows a container that scrolls under a drag, so the card
  * still lands where the finger is.
  */
-export function useEdgeScroll(containerRef, active) {
+export function useEdgeScroll(containerRef: RefObject<HTMLElement | null>, active: boolean): void {
   useEffect(() => {
     const el = containerRef.current;
     if (!active || !el) return;
 
-    let point = null;
+    let point: { x: number; y: number } | null = null;
     let frame = 0;
     let last = 0;
     // Fractions of a pixel carried over: at a crawl a frame is worth less than
     // one, and a scroll position rounds it away to nothing
     let carry = { x: 0, y: 0 };
 
-    const track = (e) => {
-      const p = e.touches?.[0] ?? e;
+    const track = (e: TouchEvent | MouseEvent) => {
+      const p = ("touches" in e ? e.touches[0] : undefined) ?? (e as MouseEvent);
       point = { x: p.clientX, y: p.clientY };
     };
 
     /* 0 outside the zone, rising to 1 at the edge itself */
-    const depth = (distance) => Math.max(0, Math.min(1, (EDGE - distance) / EDGE));
-    const speed = (d) => (d > 0 ? MIN_SPEED + (MAX_SPEED - MIN_SPEED) * d * d : 0);
+    const depth = (distance: number) => Math.max(0, Math.min(1, (EDGE - distance) / EDGE));
+    const speed = (d: number) => (d > 0 ? MIN_SPEED + (MAX_SPEED - MIN_SPEED) * d * d : 0);
 
-    const step = (now) => {
+    const step = (now: number) => {
       frame = requestAnimationFrame(step);
       // Capped, so a frame that came late does not lurch the board forward
       const dt = last ? Math.min(now - last, 50) / 1000 : 0;

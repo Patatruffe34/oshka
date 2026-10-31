@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, type RefObject } from "react";
 
 /** Below this, the finger has not said which way it is going, in pixels */
 const SLOP = 10;
@@ -19,7 +19,13 @@ const BOARD_COLUMNS = ":scope > .board > .column, :scope > .board > .add-col-wra
  * the swipe started on; `dx` how far the finger travelled (positive to the
  * right, i.e. back towards the first column); `speed` its speed at release.
  */
-export function pickStop({ stops, from, dx, speed, width }) {
+export function pickStop({ stops, from, dx, speed, width }: {
+  stops: number[];
+  from: number;
+  dx: number;
+  speed: number;
+  width: number;
+}): number {
   const far = Math.abs(dx) >= width * DISTANCE;
   const flick = Math.abs(speed) >= FLICK_SPEED && Math.abs(dx) >= FLICK_MIN &&
     Math.sign(speed) === Math.sign(dx);
@@ -29,7 +35,7 @@ export function pickStop({ stops, from, dx, speed, width }) {
 }
 
 /** The index of the stop nearest a scroll position */
-export function nearestStop(stops, left) {
+export function nearestStop(stops: number[], left: number): number {
   let best = 0;
   for (let i = 1; i < stops.length; i++) {
     if (Math.abs(stops[i] - left) < Math.abs(stops[best] - left)) best = i;
@@ -38,8 +44,8 @@ export function nearestStop(stops, left) {
 }
 
 /** Something under the finger that handles the sideways gesture itself */
-function ownsGesture(target, wrap) {
-  for (let el = target; el && el !== wrap; el = el.parentElement) {
+function ownsGesture(target: EventTarget | null, wrap: HTMLElement): boolean {
+  for (let el = target as HTMLElement | null; el && el !== wrap; el = el.parentElement) {
     const style = getComputedStyle(el);
     if (!["auto", "manipulation"].includes(style.touchAction)) return true;
     if (/(auto|scroll)/.test(style.overflowX) && el.scrollWidth > el.clientWidth) return true;
@@ -62,13 +68,16 @@ function ownsGesture(target, wrap) {
  * Stands down while a card or column is in hand: the drag-and-drop library
  * and the edge scroll own the board then.
  */
-export function useColumnSwipe(wrapRef, enabled, columnSelector = BOARD_COLUMNS) {
+export function useColumnSwipe(wrapRef: RefObject<HTMLElement | null>, enabled: boolean, columnSelector = BOARD_COLUMNS): void {
   useEffect(() => {
     const wrap = wrapRef.current;
     if (!enabled || !wrap) return;
 
-    let gesture = null;
-    let settle = null;
+    let gesture: {
+      x: number; y: number; left: number;
+      axis: "x" | null; lastX: number; lastT: number; speed: number;
+    } | null = null;
+    let settle: { onScroll: () => void; timer: ReturnType<typeof setTimeout> } | null = null;
 
     const stops = () => {
       const base = wrap.getBoundingClientRect().left - wrap.scrollLeft + PADDING;
@@ -85,7 +94,7 @@ export function useColumnSwipe(wrapRef, enabled, columnSelector = BOARD_COLUMNS)
       settle = null;
     };
 
-    const onStart = (e) => {
+    const onStart = (e: TouchEvent) => {
       endSettle();
       gesture = null;
       if (e.touches.length !== 1 || wrap.classList.contains("dragging")) return;
@@ -97,7 +106,7 @@ export function useColumnSwipe(wrapRef, enabled, columnSelector = BOARD_COLUMNS)
       };
     };
 
-    const onMove = (e) => {
+    const onMove = (e: TouchEvent) => {
       const g = gesture;
       if (!g) return;
       if (wrap.classList.contains("dragging")) {
@@ -125,7 +134,7 @@ export function useColumnSwipe(wrapRef, enabled, columnSelector = BOARD_COLUMNS)
       g.lastT = e.timeStamp;
     };
 
-    const onEnd = (e) => {
+    const onEnd = (e: TouchEvent) => {
       const g = gesture;
       gesture = null;
       if (!g || g.axis !== "x") return;

@@ -1,12 +1,28 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { uid } from "../lib/board-utils";
+import type { Id, PathSegment, TitledSegment } from "../lib/types";
+
+/** A place in the tree, or a view standing on its own like the Agenda */
+export interface Tab {
+  id: Id;
+  segments: PathSegment[];
+  view?: "week";
+}
+
+interface TabsState {
+  tabs: Tab[];
+  activeId: Id;
+}
+
+/** Live path for stored ids, titles included */
+type Resolve = (segments: PathSegment[]) => TitledSegment[];
 
 const TABS_KEY = "oshka_tabs";
 
 /** Tabs are a working set, not bookmarks: this machine's, not the account's */
-const read = () => {
+const read = (): TabsState | null => {
   try {
-    const saved = JSON.parse(localStorage.getItem(TABS_KEY));
+    const saved = JSON.parse(localStorage.getItem(TABS_KEY) ?? "null");
     if (!Array.isArray(saved?.tabs) || saved.tabs.length === 0) return null;
     // States written before the Agenda was permanent still need it
     return withAgenda(saved);
@@ -16,7 +32,7 @@ const read = () => {
 };
 
 /** View tabs stay left: they are places, not positions, and they do not move */
-const pinnedCount = (tabs) => tabs.filter((t) => t.view).length;
+const pinnedCount = (tabs: Tab[]): number => tabs.filter((t) => t.view).length;
 
 /**
  * The Agenda is always there, anchored left and never closed.
@@ -26,17 +42,17 @@ const pinnedCount = (tabs) => tabs.filter((t) => t.view).length;
  * something to summon. Its permanence is what lets the top bar drop its
  * button: the tab *is* the way in.
  */
-export const withAgenda = (state) => {
+export const withAgenda = (state: TabsState): TabsState => {
   if (state.tabs.some((t) => t.view)) return state;
   return { ...state, tabs: [{ id: uid(), segments: [], view: "week" }, ...state.tabs] };
 };
 
-const fresh = () => {
+const fresh = (): TabsState => {
   const id = uid();
   return withAgenda({ tabs: [{ id, segments: [] }], activeId: id });
 };
 
-const segmentsOf = (p) => p.map((s) => ({ colId: s.colId, cardId: s.cardId }));
+const segmentsOf = (p: PathSegment[]): PathSegment[] => p.map((s) => ({ colId: s.colId, cardId: s.cardId }));
 
 /**
  * Where a new tab lands.
@@ -48,7 +64,7 @@ const segmentsOf = (p) => p.map((s) => ({ colId: s.colId, cardId: s.cardId }));
  *
  * Either way it never crosses the pinned views on the left.
  */
-export const placeTab = (tabs, tab, { activeId, atEnd = false } = {}) => {
+export const placeTab = (tabs: Tab[], tab: Tab, { activeId, atEnd = false }: { activeId?: Id; atEnd?: boolean } = {}): Tab[] => {
   const next = [...tabs];
   // Anchored left, so it is always in the same place to reach for
   if (tab.view) return [tab, ...next];
@@ -72,13 +88,17 @@ export const placeTab = (tabs, tab, { activeId, atEnd = false } = {}) => {
  * the moment it stops showing. Nothing has to be kept in step, so nothing can
  * fall out of step.
  */
-export function useTabs({ path, navigate, ready }) {
-  const [state, setState] = useState(() => read() || fresh());
+export function useTabs({ path, navigate, ready }: {
+  path: TitledSegment[];
+  navigate: (path: TitledSegment[]) => void;
+  ready: boolean;
+}) {
+  const [state, setState] = useState<TabsState>(() => read() || fresh());
   const settled = useRef(false);
 
   /** State as it stands, with the showing tab holding where we actually are */
   const materialise = useCallback(
-    (s) => ({
+    (s: TabsState): TabsState => ({
       ...s,
       tabs: s.tabs.map((t) =>
         // A view tab holds no position, so there is nothing to write back
@@ -102,7 +122,7 @@ export function useTabs({ path, navigate, ready }) {
   }, [state, materialise, ready]);
 
   const select = useCallback(
-    (id, resolve) => {
+    (id: Id, resolve: Resolve) => {
       setState((prev) => {
         if (id === prev.activeId) return prev;
         const target = prev.tabs.find((t) => t.id === id);
@@ -115,8 +135,13 @@ export function useTabs({ path, navigate, ready }) {
   );
 
   const open = useCallback(
-    (segments, resolve, view, { background = false, atEnd = false } = {}) => {
-      const tab = { id: uid(), segments, ...(view ? { view } : {}) };
+    (
+      segments: PathSegment[],
+      resolve: Resolve,
+      view?: Tab["view"],
+      { background = false, atEnd = false }: { background?: boolean; atEnd?: boolean } = {},
+    ) => {
+      const tab: Tab = { id: uid(), segments, ...(view ? { view } : {}) };
       setState((prev) => {
         const tabs = placeTab(materialise(prev).tabs, tab, {
           activeId: prev.activeId,
@@ -132,7 +157,7 @@ export function useTabs({ path, navigate, ready }) {
   );
 
   const close = useCallback(
-    (id, resolve) => {
+    (id: Id, resolve: Resolve) => {
       setState((prev) => {
         const current = materialise(prev);
         const at = current.tabs.findIndex((t) => t.id === id);
@@ -159,7 +184,7 @@ export function useTabs({ path, navigate, ready }) {
     [navigate, materialise]
   );
 
-  const move = useCallback((from, to) => {
+  const move = useCallback((from: number, to: number) => {
     setState((prev) => {
       const tabs = [...materialise(prev).tabs];
       const pinned = pinnedCount(tabs);

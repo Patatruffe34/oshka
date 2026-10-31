@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef } from "react";
+import { useLayoutEffect, useRef, type RefObject } from "react";
 
 const OPEN_MS = 320;
 const CLOSE_MS = 300;
@@ -12,7 +12,7 @@ const EASE = "cubic-bezier(0.2, 0.8, 0.2, 1)";
  * at the first frame, and the first frame here is a board clipped down to the
  * size of a card. Timers still run there, so one of them takes it to its end.
  */
-const play = (el, keyframes, duration) => {
+const play = (el: Element, keyframes: Keyframe[], duration: number): Animation => {
   const anim = el.animate(keyframes, { duration, easing: EASE });
   const timer = setTimeout(() => anim.finish(), duration + 80);
   anim.onfinish = anim.oncancel = () => clearTimeout(timer);
@@ -20,7 +20,7 @@ const play = (el, keyframes, duration) => {
 };
 
 /** The cardIds of a view key, `${tabId}|${id/id/...}` */
-const parse = (key) => {
+const parse = (key: string): { tab: string; ids: string[] } => {
   const [tab, ids = ""] = key.split("|");
   return { tab, ids: ids ? ids.split("/") : [] };
 };
@@ -37,8 +37,8 @@ const parse = (key) => {
  * Web Animations API — nothing stays on the element after it ends. Removing
  * the call in Board removes the whole effect.
  */
-export function useDollTransition(wrapRef, viewKey, navigating) {
-  const rects = useRef(new Map());
+export function useDollTransition(wrapRef: RefObject<HTMLElement | null>, viewKey: string, navigating: boolean): void {
+  const rects = useRef(new Map<string, DOMRect>());
   const shown = useRef(viewKey);
 
   /* Where every card stood, taken as the old board fades: by the time the
@@ -46,8 +46,8 @@ export function useDollTransition(wrapRef, viewKey, navigating) {
   useLayoutEffect(() => {
     if (!navigating || !wrapRef.current) return;
     rects.current = new Map(
-      [...wrapRef.current.querySelectorAll("[data-card-id]")].map((el) => [
-        el.dataset.cardId,
+      [...wrapRef.current.querySelectorAll<HTMLElement>("[data-card-id]")].map((el) => [
+        el.dataset.cardId!,
         el.getBoundingClientRect(),
       ])
     );
@@ -61,7 +61,7 @@ export function useDollTransition(wrapRef, viewKey, navigating) {
     if (!wrap || from.tab !== to.tab) return;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
 
-    const prefix = (a, b) => a.every((id, i) => b[i] === id);
+    const prefix = (a: string[], b: string[]) => a.every((id, i) => b[i] === id);
 
     // One level in
     if (to.ids.length === from.ids.length + 1 && prefix(from.ids, to.ids)) {

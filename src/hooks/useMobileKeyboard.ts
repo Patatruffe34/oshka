@@ -7,8 +7,8 @@ export function useMobileKeyboard() {
   const mobile = useMediaQuery(MOBILE_TEXT_ENTRY);
   useEffect(() => {
     if (!mobile) return;
-    const onClick = (event) => {
-      const editor = event.target.closest?.("input, textarea, [contenteditable]");
+    const onClick = (event: MouseEvent) => {
+      const editor = (event.target as Element | null)?.closest?.("input, textarea, [contenteditable]");
       if (!isTextInput(editor)) dismissTextInput();
     };
     const onNavigate = () => dismissTextInput();

@@ -4,7 +4,7 @@ const STORAGE_KEY = "oshka_theme";
 const LEGACY_KEY = "inceptio_theme";
 
 /** Background of each theme, mirrored from --bg in app.css */
-const CHROME = { dark: "#0e0e11", light: "#f5f5f7" };
+const CHROME: Record<string, string> = { dark: "#0e0e11", light: "#f5f5f7" };
 
 export function useTheme() {
   const [theme, setTheme] = useState(() => {
