@@ -43,6 +43,8 @@ export interface Label {
   id: Id;
   name: string;
   color: string;
+  /** Picked in the label editor; labels made before it have none */
+  emoji?: string;
 }
 
 export type RepeatUnit = "day" | "week" | "month";
