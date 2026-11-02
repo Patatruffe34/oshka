@@ -44,6 +44,7 @@ interface ColumnProps extends ColumnHandlers {
   labels: Label[];
   labelFilter?: Id[];
   spotlight?: Id | null;
+  nesting?: boolean;
 }
 
 function ColorPicker({ currentColor, onPick }: { currentColor: string; onPick: (color: string) => void }) {
@@ -99,6 +100,7 @@ export default function Column({
   labels,
   labelFilter = [],
   spotlight,
+  nesting = false,
 }: ColumnProps) {
   const { t } = useI18n();
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -258,7 +260,7 @@ export default function Column({
             )}
           </div>
 
-          <Droppable droppableId={col.id} type="card">
+          <Droppable droppableId={col.id} type="card" isCombineEnabled={nesting}>
             {(dropProvided, dropSnapshot) => (
               <div
                 className="col-cards"
@@ -298,6 +300,7 @@ export default function Column({
                         <Card
                           card={card}
                           isDragging={dragSnapshot.isDragging}
+                          isNestingTarget={nesting && Boolean(dragSnapshot.combineTargetFor)}
                           onEnter={(c) => onEnterCard(c, col.id)}
                           onEnterInTab={(c) => onEnterCardInTab(c, col.id)}
                           onOpenDetail={(c) => onOpenCardDetail(c, col.id)}

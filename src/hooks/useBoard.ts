@@ -36,6 +36,7 @@ import { isRepeating, nextOccurrence, rollCardOver, normalizeRepeat } from "../l
 import { archiveCompletedCards, purgeArchivedCards } from "../lib/archives";
 import { captureInboxCard, editInboxCard, updateInboxCard, fileInboxCard, inboxCards, removeInboxCard, moveCardIntoInbox, reorderInboxCards } from "../lib/inbox";
 import { DEFAULT_SETTINGS } from "../lib/settings";
+import { nestCard as nestCardInTree, type NestDestination } from "../lib/card-nesting";
 import type {
   Board,
   BoardState,
@@ -54,7 +55,7 @@ import type {
   TitledSegment,
   TrashItem,
 } from "../lib/types";
-import type { RankEntry } from "../lib/board-utils";
+import type { CardLocation, RankEntry } from "../lib/board-utils";
 
 export { DEFAULT_SETTINGS };
 
@@ -422,13 +423,13 @@ export function useBoard(userId: string | null | undefined) {
    * snapshots carrying the same label within a short window are folded into
    * one — otherwise undo would walk back letter by letter.
    */
-  const snapshot = (label: string | null | undefined) => {
+  const snapshot = (label: string | null | undefined, coalesce = true) => {
     const now = Date.now();
     const merge =
-      label != null &&
+      coalesce && label != null &&
       lastSnapshot.current.label === label &&
       now - lastSnapshot.current.at < COALESCE_MS;
-    lastSnapshot.current = { label, at: now };
+    lastSnapshot.current = { label: coalesce ? label : null, at: now };
     if (merge) return;
 
     past.current.push({
@@ -756,6 +757,16 @@ export function useBoard(userId: string | null | undefined) {
     },
     [path]
   );
+
+  const nestCard = useCallback((from: CardLocation, to: NestDestination): RootBoard | null => {
+    if (!rootRef.current) return null;
+    const next = nestCardInTree(rootRef.current, from, to, settingsRef.current.doneOnDrop);
+    if (!next) return null;
+    snapshot("move_card", false);
+    setRoot(next);
+    touch();
+    return next;
+  }, []);
 
   /** Copy a card, subtree included, right after the original */
   const duplicateCardAt = useCallback(
@@ -1517,6 +1528,7 @@ export function useBoard(userId: string | null | undefined) {
     renameCard,
     updateCard,
     moveCardTo,
+    nestCard,
     duplicateCardAt,
     sortColumn,
     toggleCardDone,

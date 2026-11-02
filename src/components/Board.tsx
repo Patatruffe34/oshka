@@ -165,6 +165,7 @@ export default function Board({
                   columns={board.columns}
                   labels={labels}
                   labelFilter={labelFilter}
+                  nesting={drag.nesting}
                   spotlight={spotlight}
                 />
               ))}

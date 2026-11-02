@@ -1,11 +1,12 @@
 import { useState, useMemo, useRef, useEffect, useId } from "react";
 import { createPortal } from "react-dom";
-import { listBoardDestinations, visibleCards } from "../lib/board-utils";
+import { listBoardDestinations, makeCol, visibleCards } from "../lib/board-utils";
 import { colorHex } from "../lib/palette";
 import { useI18n } from "../lib/i18n";
 import { isComposingKey } from "../lib/text-entry";
+import BoardPresets, { type PresetColumn } from "./BoardPresets";
 import type { BoardDestination } from "../lib/board-utils";
-import type { Card, Id, PathSegment, RootBoard } from "../lib/types";
+import type { Card, Column, Id, PathSegment, RootBoard } from "../lib/types";
 
 const pathKey = (path: PathSegment[]) => path.map((p) => p.cardId).join("/");
 const normalize = (text: string) => text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -18,24 +19,29 @@ interface MoveCardPanelProps {
   card?: Card;
   currentColId: Id | null;
   currentPath: PathSegment[];
-  onMove: (path: PathSegment[], colId: Id) => void;
+  onMove: (path: PathSegment[], colId: Id, initialColumns?: Column[]) => void;
   onClose: () => void;
   /** A line under the title, such as why the last pick did not work */
   notice?: string;
+  /** Open directly on a dropped-on card's board. */
+  initialPath?: PathSegment[];
+  /** Offer templates for empty boards, without saving until a column is picked. */
+  allowSetup?: boolean;
 }
 
-export default function MoveCardPanel({ root, card, currentColId, currentPath, onMove, onClose, notice }: MoveCardPanelProps) {
+export default function MoveCardPanel({ root, card, currentColId, currentPath, onMove, onClose, notice, initialPath, allowSetup = false }: MoveCardPanelProps) {
   const { t } = useI18n();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
   const [filter, setFilter] = useState("");
-  const [selectedKey, setSelectedKey] = useState(() => pathKey(currentPath));
+  const [selectedKey, setSelectedKey] = useState(() => pathKey(initialPath ?? currentPath));
+  const [setup, setSetup] = useState<{ key: string; columns: Column[] } | null>(null);
 
   // Keep the existing exclusion rule: a card cannot move inside itself.
   const destinations = useMemo(
-    () => listBoardDestinations(root, card?.id, t("header.root")),
-    [root, card?.id, t]
+    () => listBoardDestinations(root, card?.id, t("header.root"), allowSetup),
+    [root, card?.id, t, allowSetup]
   );
 
   const byKey = useMemo(
@@ -43,8 +49,11 @@ export default function MoveCardPanel({ root, card, currentColId, currentPath, o
     [destinations]
   );
   const selected = byKey.get(selectedKey) ?? destinations[0];
+  const missing = !byKey.has(selectedKey);
   const currentKey = pathKey(currentPath);
   const browsingKey = pathKey(selected.path);
+  const initialColumns = selected.columns.length === 0 && setup?.key === browsingKey ? setup.columns : undefined;
+  const columns = initialColumns ?? selected.columns;
   const terms = normalize(filter.trim()).split(/\s+/).filter(Boolean);
   const searching = terms.length > 0;
   const shown = destinations.filter((dest) => searching
@@ -55,7 +64,8 @@ export default function MoveCardPanel({ root, card, currentColId, currentPath, o
   const results = searching ? shown.slice(0, RESULT_LIMIT) : shown;
 
   useEffect(() => {
-    const dialog = dialogRef.current!;
+    const dialog = dialogRef.current;
+    if (!dialog) return;
     dialog.showModal();
     return () => dialog.close();
   }, []);
@@ -64,12 +74,27 @@ export default function MoveCardPanel({ root, card, currentColId, currentPath, o
     listRef.current?.scrollTo({ top: 0 });
   }, [selectedKey, filter]);
 
+  useEffect(() => {
+    if (setup) listRef.current?.querySelector<HTMLButtonElement>(".move-col-btn")?.focus();
+  }, [setup]);
+
   const browse = (dest: BoardDestination | undefined) => {
-    setSelectedKey(pathKey(dest!.path));
+    if (!dest) return;
+    setSelectedKey(pathKey(dest.path));
     setFilter("");
+    setSetup(null);
     // Dismiss the search keyboard so the destination's columns are in view.
     const active = document.activeElement as HTMLElement | null;
     if (active?.matches("input") && dialogRef.current?.contains(active)) active.blur();
+  };
+
+  const chooseSetup = (preset: PresetColumn[]) => {
+    const columns = preset.map(({ title, emoji }) => ({ ...makeCol(title), emoji }));
+    if (columns.length === 1) {
+      onMove(selected.path, columns[0].id, columns);
+    } else {
+      setSetup({ key: browsingKey, columns });
+    }
   };
 
   return createPortal(
@@ -90,6 +115,7 @@ export default function MoveCardPanel({ root, card, currentColId, currentPath, o
           <h2 id={titleId} className="modal-title">{t(card ? "move.title" : "week.add_where")}</h2>
           {card && <p className="move-dialog-subject">{card.title || t("board.untitled")}</p>}
           {notice && <p className="move-dialog-subject" role="status">{notice}</p>}
+          {missing && <p className="move-dialog-subject" role="status">{t("move.stale_destination")}</p>}
         </div>
         <button className="modal-close" onClick={onClose} aria-label={t("board.cancel")} autoFocus>&times;</button>
       </div>
@@ -128,11 +154,11 @@ export default function MoveCardPanel({ root, card, currentColId, currentPath, o
       </nav>
 
       <div className="move-browser" ref={listRef}>
-        {!searching && (
+        {!searching && !missing && (
           <section>
-            <h3 className="move-browser-label">{t("move.choose_column")}</h3>
+            <h3 className="move-browser-label">{t(allowSetup && columns.length === 0 ? "move.setup_board" : "move.choose_column")}</h3>
             <div className="move-browser-rows">
-                {selected.columns.map((col) => {
+                {columns.map((col) => {
                   const here = browsingKey === currentKey && col.id === currentColId;
                   const hex = colorHex(col.color);
                   return (
@@ -142,7 +168,7 @@ export default function MoveCardPanel({ root, card, currentColId, currentPath, o
                       disabled={here && !!card}
                       aria-current={here || undefined}
                       style={hex ? { borderLeftColor: hex } : undefined}
-                      onClick={() => onMove(selected.path, col.id)}
+                      onClick={() => onMove(selected.path, col.id, initialColumns)}
                       title={here && card ? t("move.already_here") : undefined}
                     >
                       {col.emoji && <span className="move-col-emoji">{col.emoji}</span>}
@@ -153,9 +179,12 @@ export default function MoveCardPanel({ root, card, currentColId, currentPath, o
                     </button>
                   );
                 })}
-                {selected.columns.length === 0 && (
-                  <span className="move-dest-empty">{t("move.no_columns")}</span>
+                {columns.length === 0 && (
+                  allowSetup ? <BoardPresets inline onSelect={chooseSetup}>
+                    <button className="move-col-btn" onClick={() => chooseSetup([{ title: "Todo", emoji: "📝" }])}>{t("move.todo_column")}</button>
+                  </BoardPresets> : <span className="move-dest-empty">{t("move.no_columns")}</span>
                 )}
+                {initialColumns && <button className="btn-ghost-sm" onClick={() => setSetup(null)}>{t("move.change_template")}</button>}
             </div>
           </section>
         )}

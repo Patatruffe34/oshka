@@ -66,6 +66,7 @@ interface CardProps extends LabelHandlers {
   onMoveElsewhere?: (card: CardModel) => void;
   labels?: Label[];
   isDragging?: boolean;
+  isNestingTarget?: boolean;
   /** The id of the card just navigated to, to light it up */
   spotlight?: Id | null;
 }
@@ -92,6 +93,7 @@ export default function Card({
   onMoveElsewhere,
   labels = [],
   isDragging,
+  isNestingTarget = false,
   spotlight,
 }: CardProps) {
   const { t } = useI18n();
@@ -246,6 +248,7 @@ export default function Card({
         "card",
         swipe.active ? "swiping" : "",
         isDragging ? "dragging" : "",
+        isNestingTarget ? "card-nesting-target" : "",
         isUrl ? "card-link" : "",
         card.done ? "card-done" : "",
         card.archived ? "card-archived" : "",
@@ -262,6 +265,7 @@ export default function Card({
       data-card-id={card.id}
       aria-label={card.title || t("board.untitled")}
     >
+      {isNestingTarget && <span className="card-nesting-hint" role="status">{t("move.into", { title: card.title || t("board.untitled") })}</span>}
       {shownLabels.length > 0 && (
         <div className="card-labels">
           {shownLabels.map((label) => (

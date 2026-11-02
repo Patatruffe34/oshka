@@ -505,6 +505,7 @@ export const listBoardDestinations = (
   root: Board | null | undefined,
   exclude: Id | Set<Id> | null = null,
   rootLabel = "Root",
+  includeEmpty = false,
 ): BoardDestination[] => {
   const excluded = exclude instanceof Set ? exclude : new Set(exclude ? [exclude] : []);
   const out: BoardDestination[] = [{ path: [], trail: [rootLabel], columns: root?.columns ?? [] }];
@@ -513,10 +514,10 @@ export const listBoardDestinations = (
     if (!board?.columns) return;
     for (const col of board.columns) {
       for (const card of col.cards) {
-        if (excluded.has(card.id)) continue; // and its whole subtree
+        if (excluded.has(card.id) || (includeEmpty && card.archived)) continue; // and its whole subtree
         const nextPath = [...path, { colId: col.id, cardId: card.id }];
         const nextTrail = [...trail, card.title];
-        if (card.board?.columns?.length > 0) {
+        if (card.board?.columns && (includeEmpty || card.board.columns.length > 0)) {
           out.push({ path: nextPath, trail: nextTrail, columns: card.board.columns });
         }
         walk(card.board, nextPath, nextTrail);
