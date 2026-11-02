@@ -129,6 +129,10 @@ On the hovered card, without opening anything:
 
 And elsewhere: `⌘K` or `/` to search, `⌘Z` / `⇧⌘Z` to undo and redo, `⌥1`…`⌥9`
 to switch tabs. A click on a card opens it, a double click enters its board.
+While a text field is focused, undo/redo stays in that field's native history.
+The logo returns to the permanent home tab. Opening a board from home creates
+its own tab; going deeper within that board stays in the same tab. The `+`
+returns home to pick another board, keeping the boards already open.
 
 ## Share a link from your phone
 

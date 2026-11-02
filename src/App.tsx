@@ -12,6 +12,7 @@ import { useMobileKeyboard } from "./hooks/useMobileKeyboard";
 import { useTabs, type Tab } from "./hooks/useTabs";
 import { useToday } from "./hooks/useToday";
 import { useI18n } from "./lib/i18n";
+import { isTextInput } from "./lib/text-entry";
 import { resolvePathFromIds, getBoardAtPath, resolveBoardAtPath, subBoardStats, type CardLocation } from "./lib/board-utils";
 import type { NestDestination } from "./lib/card-nesting";
 import { dateForLane, type PlannedItem } from "./lib/planner";
@@ -104,8 +105,6 @@ function Workspace({ authState, pendingShare, setPendingShare }: WorkspaceProps)
     saveError, retrySave, reloadSaved, exportBackup, recoveryDrafts, recoverDraft,
     currentBoard,
     navigate,
-    enterCard,
-    goToBreadcrumb,
     addCard,
     addCardAt,
     deleteCard,
@@ -156,7 +155,6 @@ function Workspace({ authState, pendingShare, setPendingShare }: WorkspaceProps)
     favoriteOf,
     removeFavorite,
     isFavorited,
-    goToFavorite,
     trash,
     restoreFromTrash,
     permanentDeleteFromTrash,
@@ -184,6 +182,7 @@ function Workspace({ authState, pendingShare, setPendingShare }: WorkspaceProps)
   const { tabs, activeId, select, open, close, move } = useTabs({
     path,
     navigate,
+    navigating,
     ready: !loading && Boolean(root),
   });
 
@@ -196,12 +195,13 @@ function Workspace({ authState, pendingShare, setPendingShare }: WorkspaceProps)
       if (tab.view === "week") {
         return { emoji: "", title: t("week.title"), missing: false, view: true };
       }
+      if (tab.home) return { emoji: "", title: t("tabs.home"), missing: false };
       /* The showing tab holds no position of its own — it *is* `path`. Reading
          its stored segments would show where it stood before you moved. */
       const showing = tab.id === activeId;
       const resolved = resolvePathFromIds(root, showing ? path : tab.segments);
       if (resolved.length === 0) {
-        return { emoji: "", title: t("header.root"), missing: false };
+        return { emoji: "", title: t("tabs.gone"), missing: true };
       }
       const last = resolved[resolved.length - 1];
       if (!last) return { emoji: "", title: t("tabs.gone"), missing: true };
@@ -262,6 +262,15 @@ function Workspace({ authState, pendingShare, setPendingShare }: WorkspaceProps)
     [openPath]
   );
 
+  const navigateBoard = useCallback((segments: PathSegment[]) => {
+    if (segments.length === 0 || activeTab?.home || showingWeek) openPath(segments);
+    else navigate(resolveTab(segments));
+  }, [activeTab?.home, showingWeek, openPath, navigate, resolveTab]);
+
+  const handleEnterCard = useCallback((card: Card, colId: Id) => {
+    navigateBoard([...path, { colId, cardId: card.id }]);
+  }, [navigateBoard, path]);
+
   useEffect(() => {
     if (!spotlight) return;
     const clear = () => setSpotlight(null);
@@ -277,16 +286,12 @@ function Workspace({ authState, pendingShare, setPendingShare }: WorkspaceProps)
   }, [spotlight]);
 
   /**
-   * The "+" opens an empty tab, at the end.
-   *
-   * It used to open a copy of wherever you were standing, which reads as a
-   * duplicate of the tab you are on — or, from the Agenda, as the last board
-   * reappearing on its own, since that is the position the tree still holds.
-   * A new tab is a fresh start, so it starts at the root.
+   * The "+" returns to the permanent home to choose another board.
+   * Entering one from there opens its own tab instead of replacing home.
    */
   const openBlank = useCallback(
-    () => open([], resolveTab, undefined, { atEnd: true }),
-    [open, resolveTab]
+    () => openPath([]),
+    [openPath]
   );
 
   /* The shortcut handler is registered once; this is how it stays current
@@ -400,13 +405,13 @@ function Workspace({ authState, pendingShare, setPendingShare }: WorkspaceProps)
   const handleGoToResult = useCallback(
     (result: SearchResult) => {
       setSearchOpen(false);
-      navigate(result.path);
+      navigateBoard(result.path);
       setTimeout(
         () => setDetailModal({ card: result.card, colId: result.colId }),
         160
       );
     },
-    [navigate]
+    [navigateBoard]
   );
 
   // Grouped so CardDetail takes one stable prop instead of seven
@@ -452,8 +457,9 @@ function Workspace({ authState, pendingShare, setPendingShare }: WorkspaceProps)
         tabsRef.current(Number(e.key) - 1);
         return;
       }
-      // Undo works while typing too — that is where a slip is most likely.
+      // Text editors own undo/redo; leave their native history untouched.
       if (mod && e.key.toLowerCase() === "z") {
+        if (typing || isTextInput(document.activeElement) || e.defaultPrevented) return;
         e.preventDefault();
         if (e.shiftKey) redo();
         else undo();
@@ -621,7 +627,7 @@ function Workspace({ authState, pendingShare, setPendingShare }: WorkspaceProps)
         saving={saving}
         theme={theme}
         onToggleTheme={toggleTheme}
-        onGoToBreadcrumb={goToBreadcrumb}
+        onGoToBreadcrumb={(index) => navigateBoard(index < 0 ? [] : path.slice(0, index + 1))}
         onOpenCurrentCardDetail={handleOpenCurrentCardDetail}
         onLogout={logout}
         onOpenProfile={() => setProfileOpen(true)}
@@ -657,7 +663,7 @@ function Workspace({ authState, pendingShare, setPendingShare }: WorkspaceProps)
         trashCount={trash.length}
         userEmail={user.email}
       />
-      {/* From two: a strip announcing a single tab is chrome saying nothing */}
+      {/* Agenda and home are permanent; board tabs follow them. */}
       {!compact && tabs.length > 1 && (
         <TabStrip
           tabs={tabs}
@@ -727,7 +733,7 @@ function Workspace({ authState, pendingShare, setPendingShare }: WorkspaceProps)
         navigating={navigating}
         onAddCard={addCard}
         onDeleteCard={deleteCard}
-        onEnterCard={enterCard}
+        onEnterCard={handleEnterCard}
         onEnterCardInTab={(card, colId) =>
           open(
             [...path.map((p) => ({ colId: p.colId, cardId: p.cardId })),
@@ -777,7 +783,10 @@ function Workspace({ authState, pendingShare, setPendingShare }: WorkspaceProps)
              its own board, or it would edit whatever is behind the modal. */
           onUpdate={(c, i, f) => updateCard(c!, i, f, detailModal.at)}
           onEnter={(card, colId) => {
-            if (!detailModal.at) return enterCard(card, colId!);
+            if (!detailModal.at) {
+              if (colId) handleEnterCard(card, colId);
+              return;
+            }
             handleCloseDetail();
             // Into the card's own board, one step past the one holding it —
             // locating stops outside, this goes in.
@@ -829,7 +838,10 @@ function Workspace({ authState, pendingShare, setPendingShare }: WorkspaceProps)
       {favoritesOpen && (
         <FavoritesPanel
           favorites={favorites}
-          onGo={goToFavorite}
+          onGo={(favorite) => {
+            const resolved = resolveTab(favorite.path);
+            if (resolved.length) navigateBoard(resolved);
+          }}
           onRemove={removeFavorite}
           onClose={() => setFavoritesOpen(false)}
         />
@@ -871,7 +883,7 @@ function Workspace({ authState, pendingShare, setPendingShare }: WorkspaceProps)
           root={root}
           labels={labels}
           path={path}
-          onGo={navigate}
+          onGo={navigateBoard}
           onOpenOutline={() => { setMapOpen(false); setOutlineOpen(true); }}
           onClose={() => setMapOpen(false)}
         />
@@ -881,7 +893,7 @@ function Workspace({ authState, pendingShare, setPendingShare }: WorkspaceProps)
           root={root}
           labels={labels}
           path={path}
-          onGo={navigate}
+          onGo={navigateBoard}
           onOpenMap={() => { setOutlineOpen(false); setMapOpen(true); }}
           onClose={() => setOutlineOpen(false)}
         />

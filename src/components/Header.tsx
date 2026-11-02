@@ -96,7 +96,7 @@ export default function Header({
   const burgerRef = useRef<HTMLButtonElement>(null);
   const pathRef = useRef<HTMLButtonElement>(null);
 
-  const currentTitle = path.length ? path[path.length - 1].cardTitle : t("header.root");
+  const currentTitle = path.length ? path[path.length - 1].cardTitle : "Oshka";
 
   const secondaryActions = (
     <>
@@ -200,15 +200,17 @@ export default function Header({
           {inboxCount > 0 && <span className="inbox-trigger-count">{inboxCount}</span>}
         </button>
       )}
-      <span className="logo">
+      <button className="logo logo-home" onClick={() => { onGoToBreadcrumb(-1); setPathOpen(false); }}
+        title={t("tabs.home")} aria-label={`Oshka · ${t("tabs.home")}`}
+        aria-current={!pageTitle && path.length === 0 ? "page" : undefined}>
         <Logo size={18} />
         <span className="logo-word">Oshka</span>
-      </span>
+      </button>
 
       {pageTitle ? (
         /* A view tab has no position in the tree, so it names itself */
         <span className="page-title">{pageTitle}</span>
-      ) : compact ? (
+      ) : compact && path.length > 0 ? (
         /* The tree has no depth limit, so no horizontal breadcrumb can hold.
            Up one level stays a button of its own — it is the frequent move —
            and the full path opens vertically, where depth costs nothing. */
@@ -243,7 +245,7 @@ export default function Header({
                   onClick={() => { onGoToBreadcrumb(-1); setPathOpen(false); }}
                 >
                   <span className="crumb-step-rail" />
-                  {t("header.root")}
+                  Oshka
                 </button>
                 {path.map((p, i) => (
                   <button
@@ -286,14 +288,6 @@ export default function Header({
         </div>
       ) : (
         <div className="breadcrumb">
-          <div className="breadcrumb-item">
-            <button
-              className={`breadcrumb-btn ${path.length === 0 ? "active" : ""}`}
-              onClick={() => onGoToBreadcrumb(-1)}
-            >
-              {t("header.root")}
-            </button>
-          </div>
           {path.map((p, i) => (
             <div key={p.cardId} className="breadcrumb-item">
               <span className="breadcrumb-sep">&rsaquo;</span>

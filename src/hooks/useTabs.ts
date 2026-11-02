@@ -7,6 +7,8 @@ export interface Tab {
   id: Id;
   segments: PathSegment[];
   view?: "week";
+  /** Permanent entry point: always the root, never a navigable board tab. */
+  home?: boolean;
 }
 
 interface TabsState {
@@ -25,14 +27,15 @@ const read = (): TabsState | null => {
     const saved = JSON.parse(localStorage.getItem(TABS_KEY) ?? "null");
     if (!Array.isArray(saved?.tabs) || saved.tabs.length === 0) return null;
     // States written before the Agenda was permanent still need it
-    return withAgenda(saved);
+    return withHome(withAgenda(saved));
   } catch {
     return null;
   }
 };
 
 /** View tabs stay left: they are places, not positions, and they do not move */
-const pinnedCount = (tabs: Tab[]): number => tabs.filter((t) => t.view).length;
+export const isPinnedTab = (tab: Tab): boolean => Boolean(tab.view || tab.home);
+const pinnedCount = (tabs: Tab[]): number => tabs.filter(isPinnedTab).length;
 
 /**
  * The Agenda is always there, anchored left and never closed.
@@ -47,9 +50,20 @@ export const withAgenda = (state: TabsState): TabsState => {
   return { ...state, tabs: [{ id: uid(), segments: [], view: "week" }, ...state.tabs] };
 };
 
+/** Reuse the old root tab and collapse duplicate empty tabs during migration. */
+export const withHome = (state: TabsState): TabsState => {
+  const existing = state.tabs.find((tab) => tab.home && !tab.view)
+    ?? state.tabs.find((tab) => !tab.view && tab.segments.length === 0);
+  const home: Tab = { id: existing?.id ?? uid(), segments: [], home: true };
+  const views = state.tabs.filter((tab) => tab.view);
+  const boards = state.tabs.filter((tab) => !tab.view && tab.id !== home.id && tab.segments.length > 0);
+  const tabs = [...views, home, ...boards];
+  return { tabs, activeId: tabs.some((tab) => tab.id === state.activeId) ? state.activeId : home.id };
+};
+
 const fresh = (): TabsState => {
   const id = uid();
-  return withAgenda({ tabs: [{ id, segments: [] }], activeId: id });
+  return withHome(withAgenda({ tabs: [{ id, segments: [] }], activeId: id }));
 };
 
 const segmentsOf = (p: PathSegment[]): PathSegment[] => p.map((s) => ({ colId: s.colId, cardId: s.cardId }));
@@ -88,10 +102,11 @@ export const placeTab = (tabs: Tab[], tab: Tab, { activeId, atEnd = false }: { a
  * the moment it stops showing. Nothing has to be kept in step, so nothing can
  * fall out of step.
  */
-export function useTabs({ path, navigate, ready }: {
+export function useTabs({ path, navigate, ready, navigating = false }: {
   path: TitledSegment[];
   navigate: (path: TitledSegment[]) => void;
   ready: boolean;
+  navigating?: boolean;
 }) {
   const [state, setState] = useState<TabsState>(() => read() || fresh());
   const settled = useRef(false);
@@ -101,12 +116,34 @@ export function useTabs({ path, navigate, ready }: {
     (s: TabsState): TabsState => ({
       ...s,
       tabs: s.tabs.map((t) =>
-        // A view tab holds no position, so there is nothing to write back
-        t.id === s.activeId && !t.view ? { ...t, segments: segmentsOf(path) } : t
+        // Pinned tabs keep their identity when the board path changes.
+        t.id === s.activeId && !isPinnedTab(t) ? { ...t, segments: segmentsOf(path) } : t
       ),
     }),
     [path]
   );
+
+  useEffect(() => {
+    if (!ready || navigating || !settled.current) return;
+    const active = state.tabs.find((tab) => tab.id === state.activeId);
+    if (!active || active.view) return;
+    if (active.home && path.length === 0) return;
+    if (!active.home && path.length > 0) return;
+    // Browser history and startup restore the board path independently of tabs.
+    // Keep that navigation from ever turning the permanent home into a board.
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reconcile external board navigation, only when the active tab no longer matches its kind
+    setState((prev) => {
+      const home = prev.tabs.find((tab) => tab.home);
+      if (!home) return prev;
+      if (path.length === 0) return { ...prev, activeId: home.id };
+      const segments = segmentsOf(path);
+      const key = segments.map((step) => step.cardId).join("/");
+      const existing = prev.tabs.find((tab) => !isPinnedTab(tab) && tab.segments.map((step) => step.cardId).join("/") === key);
+      if (existing) return { ...prev, activeId: existing.id };
+      const tab: Tab = { id: uid(), segments };
+      return { tabs: placeTab(prev.tabs, tab, { activeId: home.id }), activeId: tab.id };
+    });
+  }, [path, ready, navigating, state.tabs, state.activeId]);
 
   useEffect(() => {
     if (!ready) return;
@@ -127,7 +164,7 @@ export function useTabs({ path, navigate, ready }: {
         if (id === prev.activeId) return prev;
         const target = prev.tabs.find((t) => t.id === id);
         if (!target) return prev;
-        if (!target.view) navigate(resolve(target.segments));
+        if (!target.view) navigate(target.home ? [] : resolve(target.segments));
         return { ...materialise(prev), activeId: id };
       });
     },
@@ -141,6 +178,15 @@ export function useTabs({ path, navigate, ready }: {
       view?: Tab["view"],
       { background = false, atEnd = false }: { background?: boolean; atEnd?: boolean } = {},
     ) => {
+      if (!view && segments.length === 0) {
+        if (background) return;
+        setState((prev) => {
+          const home = prev.tabs.find((tab) => tab.home);
+          return home ? { ...materialise(prev), activeId: home.id } : prev;
+        });
+        navigate([]);
+        return;
+      }
       const tab: Tab = { id: uid(), segments, ...(view ? { view } : {}) };
       setState((prev) => {
         const tabs = placeTab(materialise(prev).tabs, tab, {
@@ -163,21 +209,14 @@ export function useTabs({ path, navigate, ready }: {
         const at = current.tabs.findIndex((t) => t.id === id);
         if (at === -1) return prev;
         const closed = current.tabs[at];
+        if (isPinnedTab(closed)) return prev;
         const tabs = current.tabs.filter((t) => t.id !== id);
-
-        // Closing the last board would leave views alone, and a view holds no
-        // position in the tree — nothing to come back to. So one opens at the
-        // root and takes over, rather than the close being refused.
-        if (!closed.view && !tabs.some((t) => !t.view)) {
-          const root = { id: uid(), segments: [] };
-          navigate([]);
-          return { tabs: [...tabs, root], activeId: root.id };
-        }
 
         if (id !== prev.activeId) return { ...current, tabs };
         // Closing the one you are on lands you on its neighbour
         const next = tabs[Math.min(at, tabs.length - 1)];
-        if (!next.view) navigate(resolve(next.segments));
+        if (!next) return prev;
+        if (!next.view) navigate(next.home ? [] : resolve(next.segments));
         return { tabs, activeId: next.id };
       });
     },
@@ -189,7 +228,7 @@ export function useTabs({ path, navigate, ready }: {
       const tabs = [...materialise(prev).tabs];
       const pinned = pinnedCount(tabs);
       // Nothing crosses the pinned ones, in either direction
-      if (from < pinned) return prev;
+      if (from < pinned || from >= tabs.length) return prev;
       const target = Math.max(to, pinned);
       if (from === target) return prev;
       const [moved] = tabs.splice(from, 1);

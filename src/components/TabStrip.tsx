@@ -2,14 +2,14 @@ import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import Logo from "./Logo";
 import { IconCompass } from "./icons";
 import { useI18n } from "../lib/i18n";
-import type { Tab } from "../hooks/useTabs";
+import { isPinnedTab, type Tab } from "../hooks/useTabs";
 
 /**
  * The boards you have open, one row under the header.
  *
- * Only shown from two: a strip announcing a single tab is a row of chrome
- * saying nothing. Desktop only — the phone already folds its breadcrumb into
- * a menu, and a second row there would cost more than it gives.
+ * Agenda and home stay pinned before the open boards. Desktop only — the
+ * phone already folds its breadcrumb into a menu, and a second row there
+ * would cost more than it gives.
  *
  * A tab is a div rather than a button: the drag library refuses to start from
  * an interactive element, and the whole tab has to be the handle for dragging
@@ -56,12 +56,13 @@ export default function TabStrip({ tabs, activeId, labelOf, onSelect, onClose, o
             {tabs.map((tab, i) => {
               const { emoji, title, missing, view } = labelOf(tab);
               const active = tab.id === activeId;
+              const pinned = isPinnedTab(tab);
               return (
                 <Draggable
                   key={tab.id}
                   draggableId={tab.id}
                   index={i}
-                  isDragDisabled={Boolean(tab.view)}
+                  isDragDisabled={pinned}
                 >
                   {(dragProvided, dragSnap) => (
                     <div
@@ -71,12 +72,13 @@ export default function TabStrip({ tabs, activeId, labelOf, onSelect, onClose, o
                       role="tab"
                       tabIndex={0}
                       aria-selected={active}
+                      aria-label={title}
                       className={`tab${active ? " on" : ""}${missing ? " gone" : ""}${
-                        tab.view ? " pinned" : ""
-                      }${dragSnap.isDragging ? " lifting" : ""}`}
+                        pinned ? " pinned" : ""
+                      }${tab.home ? " tab-home" : ""}${dragSnap.isDragging ? " lifting" : ""}`}
                       onClick={() => onSelect(tab.id)}
                       onKeyDown={(e) => {
-                        if (e.key !== "Enter") return;
+                        if (e.key !== "Enter" && !(pinned && e.key === " ")) return;
                         e.preventDefault();
                         onSelect(tab.id);
                       }}
@@ -84,7 +86,7 @@ export default function TabStrip({ tabs, activeId, labelOf, onSelect, onClose, o
                       onAuxClick={(e) => {
                         if (e.button !== 1) return;
                         e.preventDefault();
-                        if (!tab.view) onClose(tab.id);
+                        if (!pinned) onClose(tab.id);
                       }}
                       title={`${title}${i < 9 ? `  ⌥${i + 1}` : ""}`}
                     >
@@ -93,10 +95,10 @@ export default function TabStrip({ tabs, activeId, labelOf, onSelect, onClose, o
                       ) : emoji ? (
                         <span className="tab-emoji">{emoji}</span>
                       ) : (
-                        <Logo size={12} className="tab-mark" />
+                        <Logo size={tab.home ? 16 : 12} className="tab-mark" />
                       )}
-                      <span className="tab-title">{title}</span>
-                      {!tab.view && (
+                      {!tab.home && <span className="tab-title">{title}</span>}
+                      {!pinned && (
                         <button
                           className="tab-close"
                           onClick={(e) => { e.stopPropagation(); onClose(tab.id); }}
@@ -116,8 +118,8 @@ export default function TabStrip({ tabs, activeId, labelOf, onSelect, onClose, o
             <button
               className="tab-add"
               onClick={onOpen}
-              title={t("tabs.new")}
-              aria-label={t("tabs.new")}
+              title={t("tabs.open_board")}
+              aria-label={t("tabs.open_board")}
             >
               +
             </button>
