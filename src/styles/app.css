@@ -309,6 +309,15 @@ body {
   letter-spacing: 0.16em;
   text-transform: uppercase;
 }
+.logo-home {
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  padding: 5px 6px;
+  cursor: pointer;
+}
+.logo-home:hover { background: var(--surface2); }
+.logo-home:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .breadcrumb {
   display: flex;
@@ -4832,6 +4841,9 @@ body {
 
 /* The anchored one does not move and says so by having nothing to grab */
 .tab.pinned { cursor: default; }
+.tab.tab-home { min-width: 36px; justify-content: center; flex-shrink: 0; cursor: pointer; }
+.tab-home .tab-mark { opacity: 0.8; }
+.tab-home.on .tab-mark { opacity: 1; }
 .tab.lifting {
   background: var(--surface);
   border-color: var(--accent-border);
