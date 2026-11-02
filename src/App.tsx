@@ -12,7 +12,8 @@ import { useMobileKeyboard } from "./hooks/useMobileKeyboard";
 import { useTabs, type Tab } from "./hooks/useTabs";
 import { useToday } from "./hooks/useToday";
 import { useI18n } from "./lib/i18n";
-import { resolvePathFromIds, getBoardAtPath, subBoardStats } from "./lib/board-utils";
+import { resolvePathFromIds, getBoardAtPath, resolveBoardAtPath, subBoardStats, type CardLocation } from "./lib/board-utils";
+import type { NestDestination } from "./lib/card-nesting";
 import { dateForLane, type PlannedItem } from "./lib/planner";
 import { archiveSummary, completedCardCount } from "./lib/archives";
 import { buzz } from "./lib/haptics";
@@ -29,6 +30,8 @@ import SearchPanel from "./components/SearchPanel";
 import MoveColumnModal from "./components/MoveColumnModal";
 import FinishBranchModal from "./components/FinishBranchModal";
 import UndoToast from "./components/UndoToast";
+import CardMoveToast from "./components/CardMoveToast";
+import NestCardPanel, { type NestDrop } from "./components/NestCardPanel";
 import OutlinePanel from "./components/OutlinePanel";
 import MindMap from "./components/MindMap";
 import LoadingLogo from "./components/LoadingLogo";
@@ -45,7 +48,7 @@ import type { Point } from "./components/Card";
 import type { ChecklistActions } from "./components/CardDetail";
 import type { TabLabel } from "./components/TabStrip";
 import type { SearchResult } from "./lib/search";
-import type { Card, Column, Id, PathSegment } from "./lib/types";
+import type { Card, Column, Id, PathSegment, RootBoard } from "./lib/types";
 import "./styles/app.css";
 
 /** The card the detail is open on, and the board holding it when not the one on screen */
@@ -109,6 +112,7 @@ function Workspace({ authState, pendingShare, setPendingShare }: WorkspaceProps)
     renameCard,
     updateCard,
     moveCardTo,
+    nestCard,
     duplicateCardAt,
     sortColumn,
     toggleCardDone,
@@ -307,6 +311,8 @@ function Workspace({ authState, pendingShare, setPendingShare }: WorkspaceProps)
   const [purgeOpen, setPurgeOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [movingColumn, setMovingColumn] = useState<Column | null>(null);
+  const [nestDrop, setNestDrop] = useState<NestDrop | null>(null);
+  const [nestNotice, setNestNotice] = useState<{ root: RootBoard; path: PathSegment[]; cardId: Id; text: string } | null>(null);
   const [finishing, setFinishing] = useState<Finishing | null>(null);
   const [outlineOpen, setOutlineOpen] = useState(false);
   const [mapOpen, setMapOpen] = useState(false);
@@ -498,7 +504,32 @@ function Workspace({ authState, pendingShare, setPendingShare }: WorkspaceProps)
     [reorderCards, reorderCols, offerBranch, here, fileInbox, labelFilter, moveToInbox, reorderInbox]
   );
 
-  const boardDrag = useBoardDrag({ onDragEnd: handleDragEnd, onColumnToZone: handleColumnToZone });
+  const handleNest = useCallback((from: CardLocation, to: NestDestination): boolean => {
+    const next = nestCard(from, to);
+    if (!next) return false;
+    const column = resolveBoardAtPath(next, to.path)?.columns.find((col) => col.id === to.colId);
+    const parent = to.path.at(-1);
+    const holder = parent && resolveBoardAtPath(next, to.path.slice(0, -1))?.columns
+      .find((col) => col.id === parent.colId)?.cards.find((card) => card.id === parent.cardId);
+    setNestNotice({ root: next, path: [...to.path], cardId: from.cardId, text: t("move.moved_into", {
+      board: holder ? holder.title || t("board.untitled") : t("header.root"),
+      column: column?.title || t("board.untitled"),
+    }) });
+    return true;
+  }, [nestCard, t]);
+
+  const handleCardToCard = useCallback((result: DropResult) => {
+    if (!root || !result.combine) return;
+    const at = here();
+    const into = [...at, { colId: result.combine.droppableId, cardId: result.combine.draggableId }];
+    const board = resolveBoardAtPath(root, into);
+    if (!board || result.combine.draggableId === result.draggableId) return;
+    const from = { path: at, colId: result.source.droppableId, cardId: result.draggableId };
+    if (board.columns.length === 1) handleNest(from, { path: into, colId: board.columns[0].id });
+    else setNestDrop({ from, path: into });
+  }, [root, here, handleNest]);
+
+  const boardDrag = useBoardDrag({ onDragEnd: handleDragEnd, onColumnToZone: handleColumnToZone, onCardToCard: handleCardToCard });
   const plannerDrag = usePlannerDrag({ root, settings, today, onSetDue: setCardDueAt, onReorder: rankCards, onInboxDrop: setInboxPlanDrop, onMoveToInbox: moveToInbox, onReorderInbox: reorderInbox });
 
   if (loading) {
@@ -855,7 +886,12 @@ function Workspace({ authState, pendingShare, setPendingShare }: WorkspaceProps)
           onClose={() => setOutlineOpen(false)}
         />
       )}
-      {lastUndone && (
+      {nestDrop && root && <NestCardPanel root={root} drop={nestDrop} onMove={handleNest} onClose={() => setNestDrop(null)} />}
+      {nestNotice && nestNotice.root === root && (
+        <CardMoveToast key={nestNotice.cardId} text={nestNotice.text} onUndo={() => { undo(); setNestNotice(null); }}
+          onOpen={() => { openPath(nestNotice.path); setSpotlight(nestNotice.cardId); setNestNotice(null); }} />
+      )}
+      {lastUndone && (!nestNotice || nestNotice.root !== root) && (
         <UndoToast
           key={lastUndone.at}
           event={lastUndone}

@@ -5,14 +5,20 @@ import { buzz } from "../lib/haptics";
 import { useEdgeScroll, NO_LIBRARY_AUTOSCROLL } from "./useEdgeScroll";
 
 /** Shared by the Inbox and board so a capture can be dropped into a column. */
-export function useBoardDrag({ onDragEnd, onColumnToZone }: {
+export function useBoardDrag({ onDragEnd, onColumnToZone, onCardToCard }: {
   onDragEnd: (result: DropResult) => void;
   /** A column dropped on the zone that sends it to another board */
   onColumnToZone?: (columnId: string) => void;
+  onCardToCard?: (result: DropResult) => void;
 }) {
   const [draggingColumn, setDraggingColumn] = useState(false);
   // Anything in hand — the board's scroll snapping stands down meanwhile
   const [dragging, setDragging] = useState(false);
+  const [shift, setShift] = useState(false);
+  const shiftRef = useRef(false);
+  const activeRef = useRef(false);
+  // onDragEnd arrives after the drop animation; Shift may be up by then.
+  const dropShiftRef = useRef<boolean | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
 
   useEdgeScroll(wrapRef, dragging);
@@ -24,12 +30,37 @@ export function useBoardDrag({ onDragEnd, onColumnToZone }: {
   // listener and once from the library's onDragEnd.
   const resolved = useRef(false);
 
+  useEffect(() => {
+    const update = (event: KeyboardEvent | MouseEvent) => {
+      shiftRef.current = event.shiftKey;
+      setShift(event.shiftKey);
+      if (activeRef.current && (event.type === "mouseup" || (event.type === "keydown" && "key" in event && event.key === " "))) {
+        dropShiftRef.current = event.shiftKey;
+      }
+    };
+    const reset = () => { shiftRef.current = false; setShift(false); };
+    window.addEventListener("keydown", update, true);
+    window.addEventListener("keyup", update, true);
+    // Also catches Shift held before the window gained focus.
+    window.addEventListener("mousedown", update, true);
+    window.addEventListener("mouseup", update, true);
+    window.addEventListener("blur", reset);
+    return () => {
+      window.removeEventListener("keydown", update, true);
+      window.removeEventListener("keyup", update, true);
+      window.removeEventListener("mousedown", update, true);
+      window.removeEventListener("mouseup", update, true);
+      window.removeEventListener("blur", reset);
+    };
+  }, []);
+
   const resolveZoneDrop = useCallback(() => {
     if (!hotRef.current || resolved.current) return false;
-    resolved.current = true;
     const id = draggedId.current;
+    if (!id) return false;
+    resolved.current = true;
     // Let the library finish its own teardown before opening a modal over it
-    requestAnimationFrame(() => onColumnToZone?.(id!));
+    requestAnimationFrame(() => onColumnToZone?.(id));
     return true;
   }, [onColumnToZone]);
 
@@ -66,6 +97,8 @@ export function useBoardDrag({ onDragEnd, onColumnToZone }: {
   }, [draggingColumn, resolveZoneDrop]);
 
   const handleDragStart = useCallback((start: DragStart) => {
+    activeRef.current = true;
+    dropShiftRef.current = null;
     setDragging(true);
     buzz("lift");
     resolved.current = false;
@@ -77,6 +110,9 @@ export function useBoardDrag({ onDragEnd, onColumnToZone }: {
 
   const handleDragEnd = useCallback(
     (result: DropResult) => {
+      const nestOnDrop = dropShiftRef.current ?? shiftRef.current;
+      activeRef.current = false;
+      dropShiftRef.current = null;
       const handledHere = result.reason !== "CANCEL" && resolveZoneDrop();
       setDragging(false);
       setDraggingColumn(false);
@@ -85,13 +121,19 @@ export function useBoardDrag({ onDragEnd, onColumnToZone }: {
       draggedId.current = null;
       if (result.destination || handledHere) buzz("drop");
       if (handledHere || resolved.current) return;
+      if (result.reason !== "CANCEL" && result.type === "card" && result.combine && nestOnDrop && onCardToCard) {
+        buzz("drop");
+        onCardToCard(result);
+        return;
+      }
       onDragEnd(result);
     },
-    [onDragEnd, resolveZoneDrop]
+    [onDragEnd, resolveZoneDrop, onCardToCard]
   );
 
   return {
     wrapRef, zoneRef, dragging, draggingColumn, zoneHot,
+    nesting: Boolean(onCardToCard) && shift && !draggingColumn,
     contextProps: {
       onBeforeCapture: () => {
         settleInboxTransition();

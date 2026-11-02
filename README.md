@@ -92,6 +92,10 @@ repetition.
 
 **On a board** — coloured, named columns, drag and drop for cards and columns,
 sorting, label filter, starter templates, trash with restore, undo/redo.
+Hold **Shift** while dragging a card onto another to move it into that card's
+board. A single column receives it directly; otherwise choose the destination
+column in the move popup. Empty boards offer the starter templates or a single
+Todo column. Choosing a template and moving the card undo together.
 
 **Everywhere** — search across the whole tree, quick access, tabs to keep
 several boards open, light/dark theme, French and English, and real offline

@@ -7,6 +7,7 @@ const firestore = vi.hoisted(() => ({ getDoc: vi.fn(), setDoc: vi.fn(), runTrans
 vi.mock("firebase/firestore", () => firestore);
 vi.mock("../../lib/firebase", () => ({ db: {} }));
 import { useBoard } from "../useBoard";
+import { INBOX_DROP_ID } from "../../lib/inbox";
 import type { Board, Comment } from "../../lib/types";
 
 let host: HTMLDivElement, reactRoot: Root, board: ReturnType<typeof useBoard>;
@@ -45,6 +46,27 @@ afterEach(async () => {
 });
 
 describe("Inbox account integration", () => {
+  it("nests an Inbox card and its new columns in one undo step, separate from a following move", async () => {
+    await act(() => board.captureInbox("A"));
+    await act(() => board.addCard("tasks", "B"));
+    await act(() => board.addCard("tasks", "C"));
+    const a = board.inbox[0];
+    const [b, c] = board.root!.columns[0].cards;
+    const path = [{ colId: "tasks", cardId: b.id }];
+    await act(() => {
+      expect(board.nestCard({ path: [], colId: INBOX_DROP_ID, cardId: a.id }, {
+        path, colId: "todo", initialColumns: [{ id: "todo", title: "Todo", emoji: "", color: "", cards: [] }],
+      })).not.toBeNull();
+    });
+    await act(() => board.moveCardTo("tasks", c.id, path, "todo"));
+    await act(() => board.undo());
+    expect(board.root!.columns[0].cards.map((card) => card.id)).toEqual([b.id, c.id]);
+    expect(board.root!.columns[0].cards[0].board.columns[0].cards).toEqual([a]);
+    await act(() => board.undo());
+    expect(board.inbox).toEqual([a]);
+    expect(board.root!.columns[0].cards[0].board.columns).toEqual([]);
+  });
+
   it("captures a shared title and description atomically and undoes both together", async () => {
     const description = "https://example.com/?a=1&b=2\n\nÀ relire";
     await act(() => board.captureInbox("Shared article", { description }));

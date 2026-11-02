@@ -179,18 +179,19 @@ const PRESETS: Preset[] = [
   },
 ];
 
-export default function BoardPresets({ onSelect, children }: { onSelect: (columns: PresetColumn[]) => void; children?: ReactNode }) {
+export default function BoardPresets({ onSelect, children, inline = false }: { onSelect: (columns: PresetColumn[]) => void; children?: ReactNode; inline?: boolean }) {
   const { t, locale } = useI18n();
   const lang = locale === "fr" ? "fr" : "en";
 
   return (
-    <div className="presets-overlay">
+    <div className={inline ? "presets-inline" : "presets-overlay"}>
       {/* The panel, not the overlay, is the scroll container: the overlay keeps
           pointer-events: none so clicks fall through to "add a column" behind
           it, and a pointer-events: none element cannot be scrolled by touch. */}
       <div className="presets-panel">
         <div className="presets-title">{t("presets.title")}</div>
         <div className="presets-subtitle">{t("presets.subtitle")}</div>
+        {inline && children && <div className="presets-scratch">{children}</div>}
         <div className="presets-grid">
           {PRESETS.map((preset) => (
             <button
@@ -209,7 +210,7 @@ export default function BoardPresets({ onSelect, children }: { onSelect: (column
 
         {/* "Start from scratch" lives inside the panel: overlaying it behind the
             presets left it unreachable once the list filled the screen. */}
-        {children && <div className="presets-scratch">{children}</div>}
+        {!inline && children && <div className="presets-scratch">{children}</div>}
       </div>
     </div>
   );
