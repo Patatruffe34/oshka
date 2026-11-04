@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { doc, getDoc, runTransaction, onSnapshot, type DocumentData, type DocumentSnapshot } from "firebase/firestore";
 import { mergeBoardState, boardStateEqual, encodeBoard, draftStore, type Draft } from "../lib/board-sync";
 import { db } from "../lib/firebase";
+import { cardIdFromHash, findLinkedCard, type CardLinkTarget } from "../lib/card-links";
 import {
   getBoardAtPath,
   resolveBoardAtPath,
@@ -143,9 +144,6 @@ function parseHash(hash: string): PathSegment[] {
   });
 }
 
-// Capture the initial hash immediately at module load (before any React effects run)
-const INITIAL_HASH_SEGMENTS = parseHash(window.location.hash);
-
 /**
  * Where the user was when they last left.
  *
@@ -165,11 +163,16 @@ const readLastPath = (): PathSegment[] => {
   }
 };
 
-const INITIAL_SEGMENTS =
-  INITIAL_HASH_SEGMENTS.length > 0 ? INITIAL_HASH_SEGMENTS : readLastPath();
-
 export function useBoard(userId: string | null | undefined) {
+  // Capture before effects can write the URL, including after signing in.
+  const [entry] = useState(() => {
+    const hash = window.location.hash;
+    const cardId = cardIdFromHash(hash);
+    const segments = parseHash(hash);
+    return { cardId, segments: cardId || segments.length ? segments : readLastPath(), hasHash: Boolean(cardId || segments.length) };
+  });
   const [root, setRoot] = useState<RootBoard | null>(null);
+  const [cardLinkRequest, setCardLinkRequest] = useState<{ cardId: Id; target: CardLinkTarget | null } | null>(null);
   const [path, setPath] = useState<TitledSegment[]>([]);
   const [favorites, setFavorites] = useState<Favorite[]>([]);
   const [trash, setTrash] = useState<TrashItem[]>([]);
@@ -490,24 +493,31 @@ export function useBoard(userId: string | null | undefined) {
   const initialPathRestored = useRef(false);
   // Only skip the first hash write when the hash was genuinely in the URL —
   // restoring from storage must still put it there, and set the title.
-  const skipHashSync = useRef(INITIAL_HASH_SEGMENTS.length > 0);
+  const skipHashSync = useRef(entry.hasHash);
 
   useEffect(() => {
     if (!root || initialPathRestored.current) return;
     initialPathRestored.current = true;
-    if (INITIAL_SEGMENTS.length > 0) {
+    if (entry.cardId) {
+      const target = findLinkedCard(root, entry.cardId);
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- resolve an external URL once the account's tree is loaded
+      setCardLinkRequest({ cardId: entry.cardId, target });
+      setPath(target?.path ?? []);
+      window.history.replaceState({ path: target?.path ?? [], cardId: entry.cardId }, "");
+      return;
+    }
+    if (entry.segments.length > 0) {
       // Cards may have been deleted since; resolvePathFromIds stops at the
       // first missing one rather than landing nowhere.
-      const resolved = resolvePathFromIds(root, INITIAL_SEGMENTS);
+      const resolved = resolvePathFromIds(root, entry.segments);
       if (resolved.length > 0) {
-        // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot restore of the entry point, guarded by initialPathRestored
         setPath(resolved);
       } else {
         skipHashSync.current = false;
       }
     }
-    window.history.replaceState({ path: INITIAL_SEGMENTS }, "");
-  }, [root]);
+    window.history.replaceState({ path: entry.segments }, "");
+  }, [root, entry]);
 
   // Remember the position for the next launch
   useEffect(() => {
@@ -533,7 +543,7 @@ export function useBoard(userId: string | null | undefined) {
       const trail = path.map((p) => p.cardTitle).join(" › ");
       document.title = `${trail} · Oshka`;
     }
-    const newHash = pathToHash(path);
+    const newHash = cardIdFromHash(window.location.hash) ? window.location.hash : pathToHash(path);
     if (window.location.hash !== newHash) {
       window.history.replaceState(window.history.state, "", newHash || window.location.pathname);
     }
@@ -542,7 +552,18 @@ export function useBoard(userId: string | null | undefined) {
 
   // Browser history integration
   useEffect(() => {
+    const openCardHash = () => {
+      const cardId = cardIdFromHash(window.location.hash);
+      if (!cardId) return false;
+      if (!root) return true;
+      const target = findLinkedCard(root, cardId);
+      setCardLinkRequest({ cardId, target });
+      setPath(target?.path ?? []);
+      window.history.replaceState({ path: target?.path ?? [], cardId }, "");
+      return true;
+    };
     const handlePopState = (e: PopStateEvent) => {
+      if (openCardHash()) return;
       const state = e.state;
       if (state && Array.isArray(state.path) && root) {
         const resolved = resolvePathFromIds(root, state.path);
@@ -559,8 +580,18 @@ export function useBoard(userId: string | null | undefined) {
         }, 120);
       }
     };
+    const handleHashChange = () => {
+      const cardId = cardIdFromHash(window.location.hash);
+      // Back/forward can emit both events. Popstate has already resolved this
+      // entry; a new fragment entry still needs resolving, even for the same ID.
+      if (cardId && window.history.state?.cardId !== cardId) openCardHash();
+    };
     window.addEventListener("popstate", handlePopState);
-    return () => window.removeEventListener("popstate", handlePopState);
+    window.addEventListener("hashchange", handleHashChange);
+    return () => {
+      window.removeEventListener("popstate", handlePopState);
+      window.removeEventListener("hashchange", handleHashChange);
+    };
   }, [root]);
 
   // ── Navigation ──
@@ -570,7 +601,7 @@ export function useBoard(userId: string | null | undefined) {
     later(() => {
       setPath(newPath);
       setNavigating(false);
-      window.history.pushState({ path: segments }, "");
+      window.history.pushState({ path: segments }, "", pathToHash(segments) || window.location.pathname);
     }, 120);
   }, []);
 
@@ -1509,6 +1540,8 @@ export function useBoard(userId: string | null | undefined) {
 
   return {
     root,
+    cardLinkRequest,
+    clearCardLink: () => setCardLinkRequest(null),
     path,
     navigating,
     saving,

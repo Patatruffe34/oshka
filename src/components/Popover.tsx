@@ -16,33 +16,35 @@ interface PopoverProps {
   anchorRef: RefObject<HTMLElement | null>;
   onClose: () => void;
   align?: "left" | "right";
+  /** A context menu opens at the pointer instead of below its button. */
+  point?: { x: number; y: number } | null;
   children: ReactNode;
 }
 
-export default function Popover({ anchorRef, onClose, align = "left", children }: PopoverProps) {
+export default function Popover({ anchorRef, onClose, align = "left", point, children }: PopoverProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
 
   const place = useCallback(() => {
     const anchor = anchorRef.current;
     const panel = panelRef.current;
-    if (!anchor || !panel) return;
+    if ((!anchor && !point) || !panel) return;
 
-    const a = anchor.getBoundingClientRect();
+    const a = point ? { top: point.y, bottom: point.y, left: point.x, right: point.x } : anchor!.getBoundingClientRect();
     const { offsetWidth: pw, offsetHeight: ph } = panel;
     const vw = window.innerWidth;
     const vh = window.innerHeight;
 
     // Below the anchor by default, above it when there is not enough room
-    let top = a.bottom + 6;
+    let top = a.bottom + (point ? 0 : 6);
     if (top + ph > vh - MARGIN && a.top - ph - 6 > MARGIN) top = a.top - ph - 6;
     top = Math.max(MARGIN, Math.min(top, vh - ph - MARGIN));
 
-    let left = align === "right" ? a.right - pw : a.left;
+    let left = !point && align === "right" ? a.right - pw : a.left;
     left = Math.max(MARGIN, Math.min(left, vw - pw - MARGIN));
 
     setPos({ top, left });
-  }, [anchorRef, align]);
+  }, [anchorRef, align, point]);
 
   useLayoutEffect(() => {
     place();

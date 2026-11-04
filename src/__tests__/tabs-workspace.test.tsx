@@ -46,6 +46,61 @@ async function click(selector: string) {
 }
 const enter = (id: string) => click(`[data-card-id="${id}"] .card-action-btn`);
 
+it("copies a card link from its menu and offers manual copying when clipboard access fails", async () => {
+  const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
+  await mount();
+  await click('[data-card-id="project"] button[aria-label="More actions"]');
+  const copy = () => [...document.querySelectorAll<HTMLButtonElement>(".card-menu-row")].find((row) => row.textContent?.includes("Copy link"))!;
+  await act(() => copy().click());
+  expect(writeText).toHaveBeenCalledExactlyOnceWith(`${window.location.origin}/#card=project`);
+  expect(document.querySelector(".card-menu")?.textContent).toContain("Link copied");
+  expect(host.querySelector(".modal-overlay")).toBeNull();
+  await act(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+  writeText.mockRejectedValue(new Error("denied"));
+  const card = host.querySelector('[data-card-id="project"]')!;
+  await act(() => card.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 100, clientY: 100 })));
+  await act(() => copy().click());
+  const fallback = document.querySelector<HTMLInputElement>(".card-menu-copy-fallback input")!;
+  expect(fallback.value).toBe(`${window.location.origin}/#card=project`);
+  expect(fallback.selectionEnd).toBe(fallback.value.length);
+  expect(host.querySelector(".modal-overlay")).toBeNull();
+});
+
+it("opens an incoming card link after loading, even when the saved tab is Agenda", async () => {
+  localStorage.setItem("oshka_tabs", JSON.stringify({ tabs: [{ id: "agenda", view: "week", segments: [] }], activeId: "agenda" }));
+  window.history.replaceState(null, "", "/#card=child");
+  await mount();
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 150)); });
+  expect(host.querySelector(".planner")).toBeNull();
+  expect(host.querySelector<HTMLTextAreaElement>(".modal-title-input")?.value).toBe("Child board");
+  expect(host.querySelector('[data-card-id="child"]')).not.toBeNull();
+  expect(host.querySelector('.tab[aria-selected="true"]')?.textContent).toContain("Project");
+});
+
+it("handles pasted card hashes while running and reports missing cards", async () => {
+  await mount();
+  await act(() => {
+    window.history.pushState(null, "", "/#card=child");
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+  });
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 150)); });
+  expect(host.querySelector<HTMLTextAreaElement>(".modal-title-input")?.value).toBe("Child board");
+  await click(".modal-close");
+  await click(".logo-home");
+  await act(() => {
+    window.history.replaceState(null, "", "/#card=child");
+    window.dispatchEvent(new PopStateEvent("popstate", { state: null }));
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+  });
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 150)); });
+  expect(host.querySelector<HTMLTextAreaElement>(".modal-title-input")?.value).toBe("Child board");
+  await act(() => {
+    window.history.pushState(null, "", "/#card=deleted");
+    window.dispatchEvent(new PopStateEvent("popstate", { state: null }));
+  });
+  expect(host.querySelector('.sync-notice[role="status"]')?.textContent).toContain("could not be found");
+});
+
 it("keeps the icon-only home and opens a board beside it, with the logo returning home", async () => {
   await mount();
   expect(host.querySelectorAll('[role="tab"]')).toHaveLength(2);

@@ -23,6 +23,10 @@ interface IconProps {
   size?: number;
 }
 
+export function IconLink({ size = 17 }: IconProps) {
+  return <svg {...base} width={size} height={size}><path d="m8 12 4-4M7 7l2.5-2.5a3.5 3.5 0 0 1 5 5L12 12M8 8l-2.5 2.5a3.5 3.5 0 0 0 5 5L13 13" /></svg>;
+}
+
 export function IconClose({ size = 20 }: IconProps) {
   return <svg {...base} width={size} height={size}><path d="m5 5 10 10M15 5 5 15" /></svg>;
 }
