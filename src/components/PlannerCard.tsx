@@ -68,6 +68,7 @@ export default function PlannerCard({ item, root, labels, fullLabels, where, car
   const [hovered, setHovered] = useState(false);
   const [editing, setEditing] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [menuPoint, setMenuPoint] = useState<Point | null>(null);
   const [menuView, setMenuView] = useState<CardMenuView>("root");
 
   useEffect(() => {
@@ -90,6 +91,7 @@ export default function PlannerCard({ item, root, labels, fullLabels, where, car
       if (action === "rename") setEditing(true);
       else if (action === "archive") cardActions.onArchive(item);
       else {
+        setMenuPoint(null);
         setMenuView(action);
         setMenuOpen(true);
       }
@@ -105,6 +107,14 @@ export default function PlannerCard({ item, root, labels, fullLabels, where, car
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       data-card-id={card.id}
+      onContextMenu={(e) => {
+        if (editing || isDragging || (e.target as Element).closest("button, a, input, textarea")) return;
+        e.preventDefault();
+        e.stopPropagation();
+        setMenuPoint({ x: e.clientX, y: e.clientY });
+        setMenuView("root");
+        setMenuOpen(true);
+      }}
       role="button"
       tabIndex={0}
       className={`planner-card${item.overdue ? " overdue" : ""}${isDragging ? " lifting" : ""}`}
@@ -211,6 +221,7 @@ export default function PlannerCard({ item, root, labels, fullLabels, where, car
             onClick={(e) => {
               e.stopPropagation();
               setMenuView("root");
+              setMenuPoint(null);
               setMenuOpen((v) => !v);
             }}
           >&#8943;</button>
@@ -255,7 +266,7 @@ export default function PlannerCard({ item, root, labels, fullLabels, where, car
       </span>
     </div>
     {menuOpen && (
-      <Popover anchorRef={menuRef} align="right" onClose={() => setMenuOpen(false)}>
+      <Popover anchorRef={menuRef} align="right" point={menuPoint} onClose={() => setMenuOpen(false)}>
         <div onClick={(e) => e.stopPropagation()}>
           <CardMenu
             card={card}

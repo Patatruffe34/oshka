@@ -53,6 +53,7 @@ afterEach(async () => {
   await act(() => reactRoot.unmount());
   host.remove();
   localStorage.clear();
+  window.history.replaceState(null, "", "/");
   vi.restoreAllMocks();
   vi.clearAllMocks();
 });

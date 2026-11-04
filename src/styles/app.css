@@ -4595,6 +4595,15 @@ body {
 .card-menu-row.danger:hover { background: rgba(248,113,113,0.1); color: var(--red); }
 .card-menu-row.danger.armed { color: var(--red); background: rgba(248,113,113,0.1); }
 
+/* Reserve the action's full label width when it changes to "Link copied". */
+.card-menu-copy-label { display: grid; }
+.card-menu-copy-label > span { grid-area: 1 / 1; }
+.card-menu-copy-size { visibility: hidden; }
+
+.card-menu-copy-fallback { padding: 4px 10px 10px; max-width: 300px; }
+.card-menu-copy-fallback p { margin: 0 0 6px; font-size: 12px; color: var(--text-muted); }
+.card-menu-copy-fallback input { width: 100%; min-width: 0; }
+
 .card-menu-back {
   color: var(--text-muted);
   font-weight: 600;

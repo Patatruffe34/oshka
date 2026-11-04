@@ -257,6 +257,10 @@ const translations: Record<string, Record<string, string>> = {
     "card.mark_undone": "Mark as not done",
     "card.rename": "Rename",
     "card.more": "More actions",
+    "card.copy_link": "Copy link to this card",
+    "card.link_copied": "Link copied",
+    "card.copy_link_manual": "Select and copy the link below.",
+    "card.link_missing": "This card could not be found in your account. It may have been deleted or belong to another account.",
 
     // Archive
     "archive.unarchive": "Unarchive",
@@ -718,6 +722,10 @@ const translations: Record<string, Record<string, string>> = {
     "card.mark_undone": "Marquer comme non terminée",
     "card.rename": "Renommer",
     "card.more": "Plus d'actions",
+    "card.copy_link": "Copier le lien de cette carte",
+    "card.link_copied": "Lien copié",
+    "card.copy_link_manual": "Sélectionnez et copiez le lien ci-dessous.",
+    "card.link_missing": "Cette carte est introuvable dans votre compte. Elle a peut-être été supprimée ou appartient à un autre compte.",
 
     // Archive
     "archive.unarchive": "Désarchiver",

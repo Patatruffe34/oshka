@@ -99,6 +99,8 @@ function Workspace({ authState, pendingShare, setPendingShare }: WorkspaceProps)
   const today = useToday();
   const {
     root,
+    cardLinkRequest,
+    clearCardLink,
     path,
     navigating,
     saving,
@@ -305,6 +307,17 @@ function Workspace({ authState, pendingShare, setPendingShare }: WorkspaceProps)
   }, [tabs, select, resolveTab]);
 
   const [detailModal, setDetailModal] = useState<DetailModal | null>(null);
+  const handledCardLink = useRef(cardLinkRequest);
+  useEffect(() => {
+    if (!cardLinkRequest || handledCardLink.current === cardLinkRequest) return;
+    handledCardLink.current = cardLinkRequest;
+    const target = cardLinkRequest.target;
+    setDetailModal(target ? { card: target.card, colId: target.colId, at: target.path } : null);
+    if (!target) return;
+    openPath(target.path);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- a URL navigation highlights the requested card once, after the tree loads
+    setSpotlight(target.card.id);
+  }, [cardLinkRequest, openPath]);
   const [burst, setBurst] = useState<{ id: number; origin: Point } | null>(null);
   const burstId = useRef(0);
   const [profileOpen, setProfileOpen] = useState(false);
@@ -610,6 +623,10 @@ function Workspace({ authState, pendingShare, setPendingShare }: WorkspaceProps)
         draggable onAdd={captureInbox} onEdit={renameInbox} onFile={fileInbox} onDelete={deleteInbox}
         onClose={() => setInboxOpen(false)} onUndo={undo} canUndo={canUndo} />
     <div className="app">
+      {cardLinkRequest && !cardLinkRequest.target && <div className="sync-notice" role="status">
+        <span>{t("card.link_missing")}</span>
+        <button onClick={clearCardLink}>{t("connections.close")}</button>
+      </div>}
       {saveError && <div className="sync-notice" role="alert">
         <span>{t(`sync.${saveError}`)}</span>
         <button onClick={retrySave}>{t("sync.retry")}</button>

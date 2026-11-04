@@ -101,6 +101,7 @@ export default function Card({
   const menuRef = useRef<HTMLButtonElement>(null);
   const [editing, setEditing] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [menuPoint, setMenuPoint] = useState<Point | null>(null);
   const [menuView, setMenuView] = useState<CardMenuView>("root");
   const [hovered, setHovered] = useState(false);
   const clickTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -167,6 +168,7 @@ export default function Card({
         if (card.archived) onUnarchive(card.id);
         else onArchive(card.id);
       } else {
+        setMenuPoint(null);
         setMenuView(action);
         setMenuOpen(true);
       }
@@ -208,7 +210,7 @@ export default function Card({
   };
 
   const handleCardKeyDown = (e: KeyboardEvent) => {
-    if (editing) return;
+    if (editing || e.target !== e.currentTarget) return;
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
       onOpenDetail(card);
@@ -256,6 +258,15 @@ export default function Card({
       ].filter(Boolean).join(" ")}
       onClick={handleCardClick}
       onDoubleClick={handleCardDoubleClick}
+      onContextMenu={(e) => {
+        if (editing || isDragging || (e.target as Element).closest(A_CONTROL)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        clearTimeout(clickTimer.current);
+        setMenuPoint({ x: e.clientX, y: e.clientY });
+        setMenuView("root");
+        setMenuOpen(true);
+      }}
       onKeyDown={handleCardKeyDown}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
@@ -417,6 +428,7 @@ export default function Card({
               onClick={(e) => {
                 e.stopPropagation();
                 setMenuView("root");
+                setMenuPoint(null);
                 setMenuOpen((v) => !v);
               }}
               aria-expanded={menuOpen}
@@ -430,7 +442,7 @@ export default function Card({
       </div>
 
       {menuOpen && (
-        <Popover anchorRef={menuRef} align="right" onClose={() => setMenuOpen(false)}>
+        <Popover anchorRef={menuRef} align="right" point={menuPoint} onClose={() => setMenuOpen(false)}>
           <div onClick={stop}>
             <CardMenu
               card={card}

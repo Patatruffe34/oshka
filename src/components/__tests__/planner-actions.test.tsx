@@ -56,6 +56,17 @@ afterEach(async () => {
 });
 
 describe("Plan card quick actions", () => {
+  it("copies the same stable link from the agenda's context menu without opening the card", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.spyOn(navigator.clipboard, "writeText").mockImplementation(writeText);
+    await act(() => card().dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 120, clientY: 80 })));
+    await click(menuRow("Copy link to this card"));
+    expect(writeText).toHaveBeenCalledExactlyOnceWith(`${window.location.origin}/#card=task`);
+    expect(document.querySelector('[role="status"]')?.textContent).toBe("Link copied");
+    expect(onOpen).not.toHaveBeenCalled();
+    expect(onLocate).not.toHaveBeenCalled();
+  });
+
   it("opens the shared menu and toggles labels without opening the card", async () => {
     await click(card().querySelector(".planner-more"));
     await click(menuRow("Labels"));

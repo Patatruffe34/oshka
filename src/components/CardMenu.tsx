@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { cardLabels } from "../lib/board-utils";
 import { useI18n } from "../lib/i18n";
+import { cardLink } from "../lib/card-links";
 import LabelPicker from "./LabelPicker";
 import DueMenu from "./DueMenu";
 import ColumnPicker from "./ColumnPicker";
-import { IconTag, IconCalendar, IconArchive, IconUnarchive, IconMove } from "./icons";
+import { IconTag, IconCalendar, IconArchive, IconUnarchive, IconMove, IconLink } from "./icons";
 import type { LabelPickerProps } from "./LabelPicker";
 import type { Card, Column, Id, IsoDay, Label, Repeat } from "../lib/types";
 
@@ -70,6 +71,7 @@ export default function CardMenu({
   // A shortcut lands on the pane it names rather than on the menu's front page
   const [view, setView] = useState<CardMenuView>(initialView);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
   // An archived card is out of the flow; it goes back before it goes anywhere
   const canMove = !card.archived && Boolean(onMoveTo) && (columns?.length ?? 0) > 0;
 
@@ -139,6 +141,27 @@ export default function CardMenu({
       )}
 
       <span className="card-menu-sep" />
+
+      <button className="card-menu-row" onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(cardLink(card.id));
+          setCopyState("copied");
+        } catch {
+          setCopyState("failed");
+        }
+      }}>
+        <IconLink size={15} />
+        <span className="card-menu-copy-label">
+          <span className="card-menu-copy-size" aria-hidden="true">{t("card.copy_link")}</span>
+          <span role="status">{t(copyState === "copied" ? "card.link_copied" : "card.copy_link")}</span>
+        </span>
+      </button>
+      {copyState === "failed" && (
+        <div className="card-menu-copy-fallback">
+          <p role="status">{t("card.copy_link_manual")}</p>
+          <input aria-label={t("card.copy_link")} value={cardLink(card.id)} readOnly autoFocus onFocus={(e) => e.currentTarget.select()} />
+        </div>
+      )}
 
       {!card.archived && onEnterInTab && (
         <button className="card-menu-row" onClick={() => { onEnterInTab(); onClose(); }}>
