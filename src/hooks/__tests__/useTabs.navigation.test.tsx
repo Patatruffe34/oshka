@@ -42,13 +42,13 @@ it("keeps home pinned, unclosable and empty while opening and closing a board", 
   await mount();
   const id = home().id;
   await act(() => tabs.close(id, resolve));
-  await act(() => tabs.move(1, 0));
+  await act(() => tabs.move(2, 0));
   expect(home().id).toBe(id);
-  expect(tabs.tabs[1]).toBe(home());
+  expect(tabs.tabs[2]).toBe(home());
   await act(() => tabs.open(project, resolve));
   await act(settle);
   const boardId = tabs.activeId;
-  expect(tabs.tabs).toHaveLength(3);
+  expect(tabs.tabs).toHaveLength(4);
   expect(home().segments).toEqual([]);
   await act(() => tabs.select(id, resolve));
   // The old board path stays visible until its navigation animation finishes.
@@ -61,7 +61,7 @@ it("keeps home pinned, unclosable and empty while opening and closing a board", 
   await act(() => tabs.close(boardId, resolve));
   await act(settle);
   expect(tabs.activeId).toBe(id);
-  expect(tabs.tabs).toHaveLength(2);
+  expect(tabs.tabs).toHaveLength(3);
 });
 
 it("reuses home for the + button and persists it without duplicate roots", async () => {
@@ -74,7 +74,7 @@ it("reuses home for the + button and persists it without duplicate roots", async
   await act(() => tabs.open([], resolve));
   await act(settle);
   expect(tabs.activeId).toBe(id);
-  expect(tabs.tabs).toHaveLength(3);
+  expect(tabs.tabs).toHaveLength(4);
   const saved = JSON.parse(localStorage.getItem("oshka_tabs")!);
   expect(saved.tabs.filter((tab: Tab) => tab.home)).toEqual([{ id, home: true, segments: [] }]);
 });
@@ -87,7 +87,7 @@ it("gives a restored deep link its own tab instead of changing home", async () =
   expect(home().segments).toEqual([]);
   expect(tabs.tabs.find((tab) => tab.id === tabs.activeId)?.segments).toEqual(project.map(({ colId, cardId }) => ({ colId, cardId })));
   await act(() => restore(deeper));
-  expect(tabs.tabs).toHaveLength(3);
+  expect(tabs.tabs).toHaveLength(4);
   await act(() => restore([]));
   expect(tabs.activeId).toBe(id);
   expect(home().segments).toEqual([]);
@@ -100,6 +100,6 @@ it("migrates stored tabs while preserving an active nested board", async () => {
   ], activeId: "board" }));
   await mount(project);
   expect(tabs.activeId).toBe("board");
-  expect(tabs.tabs).toHaveLength(3);
+  expect(tabs.tabs).toHaveLength(4);
   expect(home().segments).toEqual([]);
 });
