@@ -19,10 +19,18 @@ beforeEach(() => {
   localStorage.setItem("inceptio_lang", "en");
   localStorage.setItem("oshka_tabs", JSON.stringify({ tabs: [{ id: "root", segments: [] }], activeId: "root" }));
   vi.spyOn(window, "matchMedia").mockImplementation(() => ({ matches: compact, addEventListener: vi.fn(), removeEventListener: vi.fn() }) as unknown as MediaQueryList);
-  const child = { ...makeCard("Child board"), id: "child" };
-  const project = { ...makeCard("Project"), id: "project", board: { columns: [{ ...makeCol("Work"), cards: [child] }] } };
-  const other = { ...makeCard("Another project"), id: "other" };
-  const board = { columns: [{ ...makeCol("Projects"), cards: [project, other] }] };
+  const child = { ...makeCard("Child board"), id: "child", labels: ["urgent", "review", "urgent", "missing"] };
+  const archived = { ...makeCard("Archived card"), id: "archived", archived: true, labels: ["urgent"] };
+  const project = { ...makeCard("Project"), id: "project", board: { columns: [{ ...makeCol("Work"), cards: [child, archived] }] } };
+  const other = { ...makeCard("Another project"), id: "other", done: true, labels: ["urgent"] };
+  const board = {
+    columns: [{ ...makeCol("Projects"), cards: [project, other] }],
+    labels: [
+      { id: "urgent", name: "Urgent", color: "red" },
+      { id: "review", name: "Review", color: "blue" },
+      { id: "unused", name: "Unused", color: "green" },
+    ],
+  };
   firestore.getDoc.mockResolvedValue({ exists: () => true, data: () => ({ boardJson: JSON.stringify(board) }) });
   firestore.onSnapshot.mockReturnValue(() => {});
   host = document.createElement("div");
@@ -38,8 +46,8 @@ afterEach(async () => {
   vi.clearAllMocks();
 });
 const mount = () => act(async () => reactRoot.render(<I18nProvider><App /></I18nProvider>));
-async function click(selector: string) {
-  const target = host.querySelector<HTMLElement>(selector);
+async function click(selector: string, scope: ParentNode = host) {
+  const target = scope.querySelector<HTMLElement>(selector);
   if (!target) throw new Error(`Missing ${selector}`);
   await act(() => target.click());
   await act(async () => { await new Promise((resolve) => setTimeout(resolve, 150)); });
@@ -103,7 +111,7 @@ it("handles pasted card hashes while running and reports missing cards", async (
 
 it("keeps the icon-only home and opens a board beside it, with the logo returning home", async () => {
   await mount();
-  expect(host.querySelectorAll('[role="tab"]')).toHaveLength(2);
+  expect(host.querySelectorAll('[role="tab"]')).toHaveLength(3);
   const home = host.querySelector('.tab-home');
   expect(home?.getAttribute("aria-label")).toBe("Home");
   expect(home?.textContent?.trim()).toBe("");
@@ -111,15 +119,15 @@ it("keeps the icon-only home and opens a board beside it, with the logo returnin
   expect(host.querySelector(".header")?.textContent).not.toContain("Root");
   expect(host.querySelector(".tab-strip")?.textContent).not.toContain("Root");
   await enter("project");
-  expect(host.querySelectorAll('[role="tab"]')).toHaveLength(3);
+  expect(host.querySelectorAll('[role="tab"]')).toHaveLength(4);
   expect(host.querySelector('.tab[aria-selected="true"]')?.textContent).toContain("Project");
   expect(host.querySelector('[data-card-id="child"]')).not.toBeNull();
   await click(".logo-home");
   expect(host.querySelector('.tab-home')?.getAttribute("aria-selected")).toBe("true");
-  expect(host.querySelectorAll('[role="tab"]')).toHaveLength(3);
+  expect(host.querySelectorAll('[role="tab"]')).toHaveLength(4);
   expect(host.querySelector('[data-card-id="project"]')).not.toBeNull();
   await enter("project");
-  expect(host.querySelectorAll('[role="tab"]')).toHaveLength(3);
+  expect(host.querySelectorAll('[role="tab"]')).toHaveLength(4);
   expect(host.querySelector('[data-card-id="child"]')).not.toBeNull();
 });
 
@@ -127,11 +135,11 @@ it("keeps deeper navigation in the board's tab and preserves it when opening ano
   await mount();
   await enter("project");
   await enter("child");
-  expect(host.querySelectorAll('[role="tab"]')).toHaveLength(3);
+  expect(host.querySelectorAll('[role="tab"]')).toHaveLength(4);
   expect(host.querySelector('.tab[aria-selected="true"]')?.textContent).toContain("Child board");
   await click(".logo-home");
   await enter("other");
-  expect(host.querySelectorAll('[role="tab"]')).toHaveLength(4);
+  expect(host.querySelectorAll('[role="tab"]')).toHaveLength(5);
   expect(host.querySelector('.tab[aria-label="Child board"]')).not.toBeNull();
   expect(host.querySelector('.tab[aria-selected="true"]')?.textContent).toContain("Another project");
   await click('.tab[aria-label="Child board"]');
@@ -145,10 +153,10 @@ it("uses + as the board picker and closing the last board returns to permanent h
   await click(".tab-add");
   expect(host.querySelector('.tab-home')?.getAttribute("aria-selected")).toBe("true");
   await click(".tab-add");
-  expect(host.querySelectorAll('[role="tab"]')).toHaveLength(3);
+  expect(host.querySelectorAll('[role="tab"]')).toHaveLength(4);
   await click('.tab[aria-label="Project"]');
   await click('.tab[aria-selected="true"] .tab-close');
-  expect(host.querySelectorAll('[role="tab"]')).toHaveLength(2);
+  expect(host.querySelectorAll('[role="tab"]')).toHaveLength(3);
   expect(host.querySelector('.tab-home')?.getAttribute("aria-selected")).toBe("true");
 });
 
@@ -171,4 +179,53 @@ it("removes the extra root control on mobile and keeps the logo as its accessibl
   await click(".logo-home");
   expect(host.querySelector(".crumb-current")).toBeNull();
   expect(host.querySelector('[data-card-id="project"]')).not.toBeNull();
+});
+
+it("edits one source card through two label columns and clears both labels in one undo step", async () => {
+  await mount();
+  await click('.board-filter button[title="Unused"]');
+  await click('.tab[aria-label="Labels"]');
+  const urgent = '.labels-view section[aria-label="Urgent"] [data-card-id="child"]';
+  const review = '.labels-view section[aria-label="Review"] [data-card-id="child"]';
+  expect(host.querySelectorAll('.labels-view [data-card-id="child"]')).toHaveLength(2);
+  expect(host.querySelectorAll(".labels-view section")).toHaveLength(3);
+  expect(host.querySelector(urgent)?.querySelector(".planner-card-origin")?.textContent).toContain("Project");
+  expect(host.querySelector('.labels-view section[aria-label="Urgent"] [data-card-id="other"] .card-check')?.getAttribute("aria-pressed")).toBe("true");
+  expect(host.querySelector('.labels-view [data-card-id="archived"]')).toBeNull();
+
+  await click(review);
+  expect(host.querySelector<HTMLTextAreaElement>(".modal-title-input")?.value).toBe("Child board");
+  await click(".modal-close");
+  await click(`${urgent} .planner-more`);
+  const clear = [...document.querySelectorAll<HTMLButtonElement>(".card-menu-row")]
+    .find((row) => row.textContent === "Remove all labels")!;
+  await act(() => clear.click());
+  expect(host.querySelector(urgent)).toBeNull();
+  expect(host.querySelector(review)).toBeNull();
+  await act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "z", ctrlKey: true, bubbles: true })));
+  expect(host.querySelector(urgent)).not.toBeNull();
+  expect(host.querySelector(review)).not.toBeNull();
+
+  await click(`${review} .planner-locate:not(.planner-more)`);
+  expect(host.querySelector('.tab[aria-selected="true"]')?.textContent).toContain("Project");
+  expect(host.querySelector('[data-card-id="child"]')).not.toBeNull();
+});
+
+it.each([false, true])("keeps the card filter out of Agenda and Labels (compact: %s)", async (mobile) => {
+  compact = mobile;
+  const filter = compact ? 'button[title="Filter"]' : ".board-filter";
+  await mount();
+  expect(host.querySelector(filter)).not.toBeNull();
+  await click(compact ? '.week-fab[aria-label="Agenda"]' : '.tab[aria-label="Agenda"]');
+  expect(host.querySelector(filter)).toBeNull();
+  if (compact) {
+    await click('button[title="Menu"]');
+    await click('.header-menu button[title="Labels"]', document);
+  } else {
+    await click('.tab[aria-label="Labels"]');
+  }
+  expect(host.querySelector(".labels-view")).not.toBeNull();
+  expect(host.querySelector(filter)).toBeNull();
+  await click(".logo-home");
+  expect(host.querySelector(filter)).not.toBeNull();
 });
