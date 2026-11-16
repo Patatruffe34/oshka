@@ -44,18 +44,19 @@ interface PlannerCardProps {
   fullLabels: boolean;
   /** Written on the card where no group header says it */
   where: PlannerTrail | null;
-  cardRef: (element: HTMLElement | null) => void;
-  draggableProps: DraggableProvidedDraggableProps;
-  dragHandleProps: DraggableProvidedDragHandleProps | null;
-  isDragging: boolean;
+  cardRef?: (element: HTMLElement | null) => void;
+  draggableProps?: DraggableProvidedDraggableProps;
+  dragHandleProps?: DraggableProvidedDragHandleProps | null;
+  isDragging?: boolean;
+  onClearLabels?: (item: PlannedItem) => void;
   onOpen: (item: PlannedItem) => void;
   onLocate: LocateCard;
   onToggleDone: (item: PlannedItem, origin: Point) => void;
   cardActions: PlannerCardActions;
 }
 
-/** A card keeps its source address while the Plan groups it by date. */
-export default function PlannerCard({ item, root, labels, fullLabels, where, cardRef, draggableProps, dragHandleProps, isDragging, onOpen, onLocate, onToggleDone, cardActions }: PlannerCardProps) {
+/** A card rendered outside the board it lives on. */
+export default function PlannerCard({ item, root, labels, fullLabels, where, cardRef, draggableProps, dragHandleProps, isDragging, onOpen, onLocate, onToggleDone, onClearLabels, cardActions }: PlannerCardProps) {
   const { t, locale } = useI18n();
   const dateFmt = locale === "fr" ? "fr-FR" : "en-US";
   const { card } = item;
@@ -117,7 +118,7 @@ export default function PlannerCard({ item, root, labels, fullLabels, where, car
       }}
       role="button"
       tabIndex={0}
-      className={`planner-card${item.overdue ? " overdue" : ""}${isDragging ? " lifting" : ""}`}
+      className={`planner-card${card.done ? " done" : ""}${item.overdue ? " overdue" : ""}${isDragging ? " lifting" : ""}`}
       /* Opening the card must not cost you the view you
          are planning from — it opens over it. */
       onClick={(e) => {
@@ -139,9 +140,10 @@ export default function PlannerCard({ item, root, labels, fullLabels, where, car
       {/* One click, from here: finishing a card while
           planning should not cost a trip into it. */}
       <button
-        className="card-check planner-done"
-        title={t("week.done")}
-        aria-label={t("week.done")}
+        className={`card-check planner-done${card.done ? " checked" : ""}`}
+        title={t(card.done ? "card.mark_undone" : "week.done")}
+        aria-label={t(card.done ? "card.mark_undone" : "week.done")}
+        aria-pressed={card.done}
         onClick={(e) => {
           e.stopPropagation();
           const box = e.currentTarget.getBoundingClientRect();
@@ -278,6 +280,7 @@ export default function PlannerCard({ item, root, labels, fullLabels, where, car
             onDelete={() => cardActions.onDelete(item)}
             onArchive={() => cardActions.onArchive(item)}
             onToggleLabel={(id) => cardActions.onToggleLabel(item, id)}
+            onClearLabels={onClearLabels && (() => onClearLabels(item))}
             onSetDue={(value) => cardActions.onSetDue(item, value)}
             onSetRepeat={(value) => cardActions.onSetRepeat(item, value)}
             onAddLabel={cardActions.onAddLabel}
