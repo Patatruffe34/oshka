@@ -6,7 +6,7 @@ import type { Id, PathSegment, TitledSegment } from "../lib/types";
 export interface Tab {
   id: Id;
   segments: PathSegment[];
-  view?: "week";
+  view?: "week" | "labels";
   /** Permanent entry point: always the root, never a navigable board tab. */
   home?: boolean;
 }
@@ -26,8 +26,7 @@ const read = (): TabsState | null => {
   try {
     const saved = JSON.parse(localStorage.getItem(TABS_KEY) ?? "null");
     if (!Array.isArray(saved?.tabs) || saved.tabs.length === 0) return null;
-    // States written before the Agenda was permanent still need it
-    return withHome(withAgenda(saved));
+    return withHome(withLabels(withAgenda(saved)));
   } catch {
     return null;
   }
@@ -46,8 +45,13 @@ const pinnedCount = (tabs: Tab[]): number => tabs.filter(isPinnedTab).length;
  * button: the tab *is* the way in.
  */
 export const withAgenda = (state: TabsState): TabsState => {
-  if (state.tabs.some((t) => t.view)) return state;
+  if (state.tabs.some((t) => t.view === "week")) return state;
   return { ...state, tabs: [{ id: uid(), segments: [], view: "week" }, ...state.tabs] };
+};
+
+const withLabels = (state: TabsState): TabsState => {
+  if (state.tabs.some((tab) => tab.view === "labels")) return state;
+  return { ...state, tabs: [...state.tabs, { id: uid(), segments: [], view: "labels" }] };
 };
 
 /** Reuse the old root tab and collapse duplicate empty tabs during migration. */
@@ -63,7 +67,7 @@ export const withHome = (state: TabsState): TabsState => {
 
 const fresh = (): TabsState => {
   const id = uid();
-  return withHome(withAgenda({ tabs: [{ id, segments: [] }], activeId: id }));
+  return withHome(withLabels(withAgenda({ tabs: [{ id, segments: [] }], activeId: id })));
 };
 
 const segmentsOf = (p: PathSegment[]): PathSegment[] => p.map((s) => ({ colId: s.colId, cardId: s.cardId }));

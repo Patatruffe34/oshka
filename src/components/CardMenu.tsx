@@ -32,6 +32,7 @@ interface CardMenuProps {
   /** Planner cards are never archived, so they leave it out */
   onUnarchive?: () => void;
   onToggleLabel: (labelId: Id) => void;
+  onClearLabels?: () => void;
   onSetDue: (day: IsoDay | null) => void;
   onSetRepeat: (repeat: Repeat | null) => void;
   onAddLabel: LabelPickerProps["onAdd"];
@@ -55,6 +56,7 @@ export default function CardMenu({
   onArchive,
   onUnarchive,
   onToggleLabel,
+  onClearLabels,
   onSetDue,
   onSetRepeat,
   onAddLabel,
@@ -123,6 +125,13 @@ export default function CardMenu({
         <kbd className="card-menu-key">E</kbd>
         <span className="card-menu-more" aria-hidden="true">&rsaquo;</span>
       </button>
+
+      {onClearLabels && cardLabels(card).length > 0 && (
+        <button className="card-menu-row" onClick={() => { onClearLabels(); onClose(); }}>
+          <IconTag size={15} />
+          {t("labels.clear_card")}
+        </button>
+      )}
 
       <button className="card-menu-row" onClick={() => setView("due")}>
         <IconCalendar size={15} />

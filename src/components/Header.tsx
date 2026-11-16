@@ -6,7 +6,7 @@ import Popover from "./Popover";
 import CleanupMenu from "./CleanupMenu";
 import {
   IconOutline, IconFilter, IconCompass, IconSearch, IconStar, IconTrash,
-  IconSun, IconMoon, IconGear, IconPower, IconUndo, IconInbox,
+  IconSun, IconMoon, IconGear, IconPower, IconUndo, IconInbox, IconTag,
 } from "./icons";
 import { LabelDots } from "./BoardFilter";
 import { toggleIn } from "../lib/toggle";
@@ -42,6 +42,8 @@ interface HeaderProps {
   onOpenOutline: () => void;
   onOpenWeek: () => void;
   weekOpen: boolean;
+  onOpenLabels?: () => void;
+  labelsOpen?: boolean;
   onUndo: () => void;
   canUndo: boolean;
   onToggleFavorite: () => void;
@@ -77,6 +79,8 @@ export default function Header({
   onOpenOutline,
   onOpenWeek,
   weekOpen,
+  onOpenLabels,
+  labelsOpen,
   onUndo,
   canUndo,
   onToggleFavorite,
@@ -110,6 +114,18 @@ export default function Header({
         >
           <IconUndo />
           <span className="menu-label">{t("history.undo")}</span>
+        </button>
+      )}
+
+      {compact && onOpenLabels && (
+        <button
+          className="icon-btn"
+          onClick={() => { onOpenLabels(); setMenuOpen(false); }}
+          title={t("labels.title")}
+          aria-current={labelsOpen ? "page" : undefined}
+        >
+          <IconTag />
+          <span className="menu-label">{t("labels.title")}</span>
         </button>
       )}
 
@@ -346,7 +362,7 @@ export default function Header({
 
         {/* On a phone the filter sits beside search rather than as a standing
             bar over the board, which was costing vertical space full time. */}
-        {compact && labels.length > 0 && (
+        {compact && !pageTitle && labels.length > 0 && (
           <>
             <button
               ref={filterRef}
