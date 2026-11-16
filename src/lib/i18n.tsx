@@ -356,6 +356,8 @@ const translations: Record<string, Record<string, string>> = {
     // Labels
     "labels.title": "Labels",
     "labels.empty": "No labels yet.",
+    "labels.column_empty": "No cards with this label.",
+    "labels.clear_card": "Remove all labels",
     "labels.add": "Create a label",
     "labels.add_to_card": "Add labels",
     "labels.rename": "Rename",
@@ -821,6 +823,8 @@ const translations: Record<string, Record<string, string>> = {
     // Étiquettes
     "labels.title": "Étiquettes",
     "labels.empty": "Aucune étiquette pour l'instant.",
+    "labels.column_empty": "Aucune carte avec cette étiquette.",
+    "labels.clear_card": "Retirer toutes les étiquettes",
     "labels.add": "Créer une étiquette",
     "labels.add_to_card": "Ajouter des étiquettes",
     "labels.rename": "Renommer",

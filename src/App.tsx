@@ -13,7 +13,7 @@ import { useTabs, type Tab } from "./hooks/useTabs";
 import { useToday } from "./hooks/useToday";
 import { useI18n } from "./lib/i18n";
 import { isTextInput } from "./lib/text-entry";
-import { resolvePathFromIds, getBoardAtPath, resolveBoardAtPath, subBoardStats, type CardLocation } from "./lib/board-utils";
+import { cardLabels, resolvePathFromIds, getBoardAtPath, resolveBoardAtPath, subBoardStats, type CardLocation } from "./lib/board-utils";
 import type { NestDestination } from "./lib/card-nesting";
 import { dateForLane, type PlannedItem } from "./lib/planner";
 import { archiveSummary, completedCardCount } from "./lib/archives";
@@ -39,6 +39,8 @@ import LoadingLogo from "./components/LoadingLogo";
 import BoardFilter from "./components/BoardFilter";
 import TabStrip from "./components/TabStrip";
 import PlannerView from "./components/PlannerView";
+import LabelsView from "./components/LabelsView";
+import type { PlannerCardActions } from "./components/PlannerCard";
 import PurgeArchivesModal from "./components/PurgeArchivesModal";
 import InboxPanel from "./components/InboxPanel";
 import InboxCardDetail from "./components/InboxCardDetail";
@@ -190,13 +192,16 @@ function Workspace({ authState, pendingShare, setPendingShare }: WorkspaceProps)
 
   const activeTab = tabs.find((t) => t.id === activeId);
   const showingWeek = activeTab?.view === "week";
+  const showingLabels = activeTab?.view === "labels";
+  const showingView = showingWeek || showingLabels;
 
   /* Read off the tree at draw time, so a rename shows and a deletion shows */
   const labelOf = useCallback(
     (tab: Tab): TabLabel => {
       if (tab.view === "week") {
-        return { emoji: "", title: t("week.title"), missing: false, view: true };
+        return { emoji: "", title: t("week.title"), missing: false };
       }
+      if (tab.view === "labels") return { emoji: "", title: t("labels.title"), missing: false };
       if (tab.home) return { emoji: "", title: t("tabs.home"), missing: false };
       /* The showing tab holds no position of its own — it *is* `path`. Reading
          its stored segments would show where it stood before you moved. */
@@ -234,6 +239,11 @@ function Workspace({ authState, pendingShare, setPendingShare }: WorkspaceProps)
     if (board) select(board.id, resolveTab);
   }, [tabs, activeId, select, open, resolveTab]);
 
+  const openLabels = () => {
+    const tab = tabs.find((tab) => tab.view === "labels");
+    if (tab) select(tab.id, resolveTab);
+  };
+
   /* Go to a card's board, in a tab of its own so the week stays open, and let
      it glow until something is touched — otherwise you arrive on a board and
      have to hunt for what you just clicked. */
@@ -255,19 +265,23 @@ function Workspace({ authState, pendingShare, setPendingShare }: WorkspaceProps)
     [open, select, tabs, resolveTab]
   );
 
+  const [labelFilter, setLabelFilter] = useState<Id[]>([]);
   const locate = useCallback(
     (item: PlannedItem, opts: { background: boolean }) => {
       // The board that holds the card — you are looking for it, not going in
+      if (!opts.background && !labelFilter.every((id) => cardLabels(item.card).includes(id))) {
+        setLabelFilter([]);
+      }
       openPath(item.path.map((p) => ({ colId: p.colId, cardId: p.cardId })), opts);
       setSpotlight(item.card.id);
     },
-    [openPath]
+    [labelFilter, openPath]
   );
 
   const navigateBoard = useCallback((segments: PathSegment[]) => {
-    if (segments.length === 0 || activeTab?.home || showingWeek) openPath(segments);
+    if (segments.length === 0 || activeTab?.home || showingView) openPath(segments);
     else navigate(resolveTab(segments));
-  }, [activeTab?.home, showingWeek, openPath, navigate, resolveTab]);
+  }, [activeTab?.home, showingView, openPath, navigate, resolveTab]);
 
   const handleEnterCard = useCallback((card: Card, colId: Id) => {
     navigateBoard([...path, { colId, cardId: card.id }]);
@@ -334,7 +348,6 @@ function Workspace({ authState, pendingShare, setPendingShare }: WorkspaceProps)
   const [finishing, setFinishing] = useState<Finishing | null>(null);
   const [outlineOpen, setOutlineOpen] = useState(false);
   const [mapOpen, setMapOpen] = useState(false);
-  const [labelFilter, setLabelFilter] = useState<Id[]>([]);
 
   /* `move` opens it on the move panel — the card menu's way to another board */
   const handleOpenDetail = useCallback((card: Card, colId: Id, { move }: { move?: boolean } = {}) => {
@@ -605,6 +618,24 @@ function Workspace({ authState, pendingShare, setPendingShare }: WorkspaceProps)
         ?.cards.find((c) => c.id === detailModal.card.id)
     : null;
   const inboxDetailCard = inbox.find((card) => card.id === inboxDetailId);
+  const openProjectedCard = (item: PlannedItem) =>
+    setDetailModal({ card: item.card, colId: item.colId, at: item.path });
+  const toggleProjectedDone = (item: PlannedItem, origin: Point) =>
+    handleToggleCardDone(item.colId, item.card.id, origin, item.path);
+  const projectedCardActions: PlannerCardActions = {
+    onRename: (item, title) => updateCard(item.colId, item.card.id, { title }, item.path),
+    onDelete: (item) => deleteCard(item.colId, item.card.id, item.path),
+    onArchive: (item) => setCardArchived(item.colId, item.card.id, true, item.path),
+    onToggleLabel: (item, id) => toggleCardLabel(item.colId, item.card.id, id, item.path),
+    onSetDue: (item, value) => setCardDue(item.colId, item.card.id, value, item.path),
+    onSetRepeat: (item, value) => setCardRepeat(item.colId, item.card.id, value, item.path),
+    onMoveTo: (item, colId) => moveCardTo(item.colId, item.card.id, item.path, colId, item.path),
+    onMoveElsewhere: (item) => setDetailModal({ card: item.card, colId: item.colId, at: item.path, move: true }),
+    onEnterInTab: (item) => openPath([...item.path, { colId: item.colId, cardId: item.card.id }]),
+    onAddLabel: addLabel,
+    onUpdateLabel: updateLabel,
+    onDeleteLabel: deleteLabel,
+  };
 
   return (
     <DragDropContext {...(showingWeek ? plannerDrag : boardDrag).contextProps}>
@@ -620,7 +651,7 @@ function Workspace({ authState, pendingShare, setPendingShare }: WorkspaceProps)
         }} />}
       <InboxPanel key={user.uid} open={inboxOpen} root={root} cards={inbox}
         onOpen={setInboxDetailId}
-        draggable onAdd={captureInbox} onEdit={renameInbox} onFile={fileInbox} onDelete={deleteInbox}
+        draggable={!showingLabels} onAdd={captureInbox} onEdit={renameInbox} onFile={fileInbox} onDelete={deleteInbox}
         onClose={() => setInboxOpen(false)} onUndo={undo} canUndo={canUndo} />
     <div className="app">
       {cardLinkRequest && !cardLinkRequest.target && <div className="sync-notice" role="status">
@@ -639,8 +670,8 @@ function Workspace({ authState, pendingShare, setPendingShare }: WorkspaceProps)
         <button onClick={exportBackup}>{t("sync.export")}</button>
       </div>}
       <Header
-        path={showingWeek ? [] : resolveTab(path)}
-        pageTitle={showingWeek ? t("week.title") : null}
+        path={showingView ? [] : resolveTab(path)}
+        pageTitle={showingView ? labelOf(activeTab).title : null}
         saving={saving}
         theme={theme}
         onToggleTheme={toggleTheme}
@@ -664,6 +695,8 @@ function Workspace({ authState, pendingShare, setPendingShare }: WorkspaceProps)
         onOpenOutline={() => setOutlineOpen(true)}
         onOpenWeek={openWeek}
         weekOpen={showingWeek}
+        onOpenLabels={openLabels}
+        labelsOpen={showingLabels}
         onUndo={undo}
         canUndo={canUndo}
         online={online}
@@ -680,7 +713,7 @@ function Workspace({ authState, pendingShare, setPendingShare }: WorkspaceProps)
         trashCount={trash.length}
         userEmail={user.email}
       />
-      {/* Agenda and home are permanent; board tabs follow them. */}
+      {/* The views and home are permanent; board tabs follow them. */}
       {!compact && tabs.length > 1 && (
         <TabStrip
           tabs={tabs}
@@ -692,7 +725,7 @@ function Workspace({ authState, pendingShare, setPendingShare }: WorkspaceProps)
           onMove={move}
         />
       )}
-      {!compact && labels.length > 0 && (currentBoard?.columns.length ?? 0) > 0 && (
+      {!showingView && !compact && labels.length > 0 && (currentBoard?.columns.length ?? 0) > 0 && (
         <BoardFilter
           labels={labels}
           selected={labelFilter}
@@ -706,43 +739,27 @@ function Workspace({ authState, pendingShare, setPendingShare }: WorkspaceProps)
           today={today}
           labels={labels}
           settings={settings}
-          onOpen={(item) =>
-            setDetailModal({
-              card: item.card,
-              colId: item.colId,
-              at: item.path.map((p) => ({ colId: p.colId, cardId: p.cardId })),
-            })
-          }
+          onOpen={openProjectedCard}
           onLocate={locate}
-          cardActions={{
-            onRename: (item, title) => updateCard(item.colId, item.card.id, { title }, item.path),
-            onDelete: (item) => deleteCard(item.colId, item.card.id, item.path),
-            onArchive: (item) => setCardArchived(item.colId, item.card.id, true, item.path),
-            onToggleLabel: (item, id) => toggleCardLabel(item.colId, item.card.id, id, item.path),
-            onSetDue: (item, value) => setCardDue(item.colId, item.card.id, value, item.path),
-            onSetRepeat: (item, value) => setCardRepeat(item.colId, item.card.id, value, item.path),
-            onMoveTo: (item, colId) => moveCardTo(item.colId, item.card.id, item.path, colId, item.path),
-            onMoveElsewhere: (item) => setDetailModal({ card: item.card, colId: item.colId, at: item.path, move: true }),
-            onEnterInTab: (item) => openPath([...item.path, { colId: item.colId, cardId: item.card.id }]),
-            onAddLabel: addLabel,
-            onUpdateLabel: updateLabel,
-            onDeleteLabel: deleteLabel,
-          }}
+          cardActions={projectedCardActions}
           onSetDue={setCardDueAt}
           onReorder={rankCards}
-          onToggleDone={(item, origin) =>
-            handleToggleCardDone(
-              item.colId,
-              item.card.id,
-              origin,
-              item.path.map((p) => ({ colId: p.colId, cardId: p.cardId }))
-            )
-          }
+          onToggleDone={toggleProjectedDone}
           onAdd={(lane, title, path, colId) =>
             addCardAt(path, colId, title, {
               dueAt: dateForLane(lane, null, { weekMode: settings?.weekMode }) ?? null,
             })
           }
+        />
+      ) : showingLabels ? (
+        root && <LabelsView
+          root={root}
+          labels={labels}
+          onOpen={openProjectedCard}
+          onLocate={locate}
+          onToggleDone={toggleProjectedDone}
+          onClearLabels={(item) => updateCard(item.colId, item.card.id, { labels: [] }, item.path)}
+          cardActions={projectedCardActions}
         />
       ) : (
       <Board
@@ -808,7 +825,7 @@ function Workspace({ authState, pendingShare, setPendingShare }: WorkspaceProps)
             // Into the card's own board, one step past the one holding it —
             // locating stops outside, this goes in.
             const into = [...detailModal.at, { colId: colId!, cardId: card.id }];
-            if (!showingWeek && into.length === path.length && into.every((s, i) => s.cardId === path[i].cardId)) return;
+            if (!showingView && into.length === path.length && into.every((s, i) => s.cardId === path[i].cardId)) return;
             openPath(into);
           }}
           onToggleDone={(c, i, o) => handleToggleCardDone(c!, i, o, detailModal.at)}
